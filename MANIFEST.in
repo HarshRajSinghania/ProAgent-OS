@@ -1,0 +1,6 @@
+recursive-include proagent_os/web *
+recursive-include config *
+recursive-include skills *
+recursive-include fixtures *
+recursive-include verticals *
+include LICENSE README.md requirements.txt

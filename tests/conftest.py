@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+# Ensure test DB isolation before imports that cache settings
+TEST_DB = Path("/tmp/proagent_test.db")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_db(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("PROAGENT_DB_PATH", str(db_path))
+    monkeypatch.setenv("PROAGENT_ADMIN_KEY", "test-admin-key")
+    monkeypatch.setenv("PROAGENT_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PROAGENT_AGENTS_CONFIG", str(Path("config/agents.yaml").resolve()))
+    monkeypatch.setenv(
+        "PROAGENT_SKILLS_DIRS",
+        ",".join(
+            [
+                str(Path("skills").resolve()),
+                str(Path("verticals/example/skills").resolve()),
+            ]
+        ),
+    )
+
+    from proagent_os.config import get_settings
+    from proagent_os.db import reset_db
+    from proagent_os.llm.factory import reset_llm_cache
+    from proagent_os.services import reset_services
+
+    get_settings.cache_clear()
+    reset_llm_cache()
+    reset_db(db_path)
+    reset_services()
+    yield
+    get_settings.cache_clear()
+    reset_llm_cache()

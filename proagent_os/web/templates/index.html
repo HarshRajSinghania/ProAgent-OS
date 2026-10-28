@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ProAgent OS</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="logo">P</div>
+      <div>
+        <div>ProAgent OS</div>
+        <div class="muted" style="font-size:.8rem;font-weight:500">Professional · Proactive · Profitable</div>
+      </div>
+      <span class="badge">v{{ version }}</span>
+    </div>
+    <div id="authBar">
+      <input id="apiKey" type="password" placeholder="Tenant or admin API key" />
+      <button class="btn secondary" onclick="saveKey()">Save key</button>
+    </div>
+  </header>
+
+  <main>
+    <nav class="sidebar">
+      <button class="active" data-tab="chat" onclick="showTab('chat')">Task console</button>
+      <button data-tab="kb" onclick="showTab('kb')">Knowledge base</button>
+      <button data-tab="recs" onclick="showTab('recs')">Recommendations</button>
+      <button data-tab="skills" onclick="showTab('skills')">Skills</button>
+      <button data-tab="monitors" onclick="showTab('monitors')">Monitors</button>
+      <button data-tab="dash" onclick="showTab('dash')">Dashboard</button>
+    </nav>
+
+    <section>
+      <div id="tab-chat" class="panel">
+        <h2>Task console</h2>
+        <div class="chat-log" id="chatLog"></div>
+        <label>Task input</label>
+        <textarea id="taskInput" placeholder="Ask ProAgent OS to research, analyze, or recommend…"></textarea>
+        <div class="row" style="margin-top:.6rem">
+          <button class="btn" onclick="runTask()">Run task</button>
+          <span class="muted" id="taskStatus"></span>
+        </div>
+        <pre id="taskTrace" class="mono" style="margin-top:1rem"></pre>
+      </div>
+
+      <div id="tab-kb" class="panel hidden">
+        <h2>Knowledge base</h2>
+        <div class="grid2">
+          <div>
+            <label>Ingest URL (or fixture://sample_product.html)</label>
+            <input id="kbUrl" value="fixture://sample_product.html" />
+            <div class="row" style="margin-top:.6rem">
+              <button class="btn" onclick="ingestUrl()">Ingest URL</button>
+            </div>
+            <label style="margin-top:1rem">Upload file (.md/.txt/.html)</label>
+            <input id="kbFile" type="file" />
+            <div class="row" style="margin-top:.6rem">
+              <button class="btn secondary" onclick="ingestFile()">Upload & ingest</button>
+            </div>
+          </div>
+          <div>
+            <label>Search</label>
+            <input id="kbQuery" placeholder="conversion rate" />
+            <div class="row" style="margin-top:.6rem">
+              <button class="btn secondary" onclick="searchKb()">Search</button>
+              <button class="btn secondary" onclick="listDocs()">Refresh docs</button>
+            </div>
+            <pre id="kbOut" class="mono" style="margin-top:.8rem"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-recs" class="panel hidden">
+        <h2>Recommendation inbox</h2>
+        <div class="row">
+          <button class="btn secondary" onclick="loadRecs()">Refresh</button>
+        </div>
+        <div id="recList" style="margin-top:.8rem"></div>
+      </div>
+
+      <div id="tab-skills" class="panel hidden">
+        <h2>Skills</h2>
+        <button class="btn secondary" onclick="loadSkills()">Refresh</button>
+        <div id="skillList" style="margin-top:.8rem"></div>
+      </div>
+
+      <div id="tab-monitors" class="panel hidden">
+        <h2>Monitors</h2>
+        <div class="grid2">
+          <div>
+            <label>Name</label>
+            <input id="monName" value="Conversion watch" />
+            <label>Kind</label>
+            <select id="monKind">
+              <option value="metric_stub">metric_stub</option>
+              <option value="kb_change">kb_change</option>
+              <option value="data_source">data_source</option>
+            </select>
+            <label>Config JSON</label>
+            <textarea id="monConfig">{"metric":"conversion_rate","current":0.018,"target":0.025}</textarea>
+            <div class="row" style="margin-top:.6rem">
+              <button class="btn" onclick="createMonitor()">Create monitor</button>
+            </div>
+          </div>
+          <div>
+            <button class="btn secondary" onclick="loadMonitors()">Refresh</button>
+            <div id="monList" style="margin-top:.8rem"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="tab-dash" class="panel hidden">
+        <h2>Dashboard</h2>
+        <button class="btn secondary" onclick="loadDash()">Refresh</button>
+        <pre id="dashOut" class="mono" style="margin-top:.8rem"></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    ProAgent OS — vertical-agnostic agent framework. Keys stay in your browser localStorage.
+    Bootstrap tenants with admin key via <code>POST /api/v1/tenants</code>.
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

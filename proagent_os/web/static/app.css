@@ -1,0 +1,91 @@
+:root {
+  --bg: #0b1220;
+  --panel: #121a2b;
+  --panel2: #182238;
+  --text: #e8eefc;
+  --muted: #9aacd0;
+  --accent: #5b8cff;
+  --accent2: #3dd6c6;
+  --danger: #ff6b7a;
+  --ok: #3ecf8e;
+  --border: #24304a;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: radial-gradient(1200px 600px at 10% -10%, #1a2a55 0%, transparent 50%),
+              radial-gradient(900px 500px at 100% 0%, #163d3a 0%, transparent 40%),
+              var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+a { color: var(--accent2); }
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.5rem; border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(8px); position: sticky; top: 0; background: rgba(11,18,32,.8);
+}
+.brand { display: flex; gap: .75rem; align-items: center; font-weight: 700; letter-spacing: .02em; }
+.brand .logo {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display:grid; place-items:center; color:#041018; font-weight:800;
+}
+.badge { font-size: .75rem; color: #a9b7d6; background: var(--panel2); padding: .2rem .5rem; border-radius: 999px; border: 1px solid var(--border); }
+main { display: grid; grid-template-columns: 280px 1fr; gap: 1rem; padding: 1rem 1.5rem 2rem; }
+nav.sidebar {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: .75rem;
+  height: fit-content; position: sticky; top: 80px;
+}
+nav.sidebar button {
+  width: 100%; text-align: left; background: transparent; border: 0; color: var(--text);
+  padding: .7rem .85rem; border-radius: 10px; cursor: pointer; margin-bottom: .25rem;
+}
+nav.sidebar button.active, nav.sidebar button:hover { background: var(--panel2); }
+.panel {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 1rem 1.1rem;
+}
+.panel h2 { margin: 0 0 .75rem; font-size: 1.1rem; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+label { display:block; font-size:.8rem; color:#a9b7d6; margin: .4rem 0 .25rem; }
+input, textarea, select {
+  width: 100%; background: #0d1526; color: var(--text); border: 1px solid var(--border);
+  border-radius: 10px; padding: .65rem .75rem; font: inherit;
+}
+textarea { min-height: 110px; resize: vertical; }
+.row { display:flex; gap:.5rem; flex-wrap: wrap; align-items: center; }
+button.btn, .btn {
+  background: linear-gradient(135deg, var(--accent), #4177ff); color: white; border: 0;
+  border-radius: 10px; padding: .6rem .9rem; cursor: pointer; font-weight: 600;
+}
+button.btn.secondary { background: var(--panel2); border: 1px solid var(--border); }
+button.btn.ok { background: linear-gradient(135deg, #2fbf7c, #21a866); }
+button.btn.danger { background: linear-gradient(135deg, #ff6b7a, #e25565); }
+pre, .mono { font-family: var(--mono); font-size: .82rem; white-space: pre-wrap; word-break: break-word; }
+.card {
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 12px; padding: .8rem;
+  margin-bottom: .6rem;
+}
+.muted { color: #9aacd0; }
+.status { display:inline-block; padding:.15rem .45rem; border-radius:999px; font-size:.75rem; border:1px solid var(--border); }
+.status.pending { color: #ffd166; }
+.status.approved, .status.executed { color: var(--ok); }
+.status.rejected { color: var(--danger); }
+#authBar { display:flex; gap:.5rem; align-items:center; }
+#authBar input { width: 260px; }
+.hidden { display:none !important; }
+.chat-log { max-height: 360px; overflow:auto; }
+.msg { margin-bottom: .6rem; padding: .7rem .8rem; border-radius: 12px; background: #0d1526; border: 1px solid var(--border); }
+.msg.user { border-color: #35508a; }
+.msg.assistant { border-color: #2a6b62; }
+footer { padding: 1rem 1.5rem 2rem; color:#8ea0c3; font-size:.85rem; }
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  nav.sidebar { position: static; display:flex; gap:.25rem; overflow:auto; }
+  nav.sidebar button { width: auto; white-space: nowrap; }
+  .grid2 { grid-template-columns: 1fr; }
+  #authBar input { width: 160px; }
+}

@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class TenantCreate(BaseModel):
+    name: str
+    goals: str = ""
+    constraints: str = ""
+    tone: str = "professional"
+
+
+class TenantUpdate(BaseModel):
+    goals: Optional[str] = None
+    constraints: Optional[str] = None
+    tone: Optional[str] = None
+
+
+class TenantOut(BaseModel):
+    id: str
+    name: str
+    api_key: str
+    goals: str = ""
+    constraints: str = ""
+    tone: str = "professional"
+    created_at: str
+
+
+class TaskCreate(BaseModel):
+    input: str
+    conversation_id: Optional[str] = None
+
+
+class KbIngestUrl(BaseModel):
+    url: str
+
+
+class KbIngestText(BaseModel):
+    title: str
+    content: str
+    source: str = "manual"
+
+
+class KbSearchQuery(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+class MonitorCreate(BaseModel):
+    name: str
+    kind: str = Field(description="kb_change | metric_stub | data_source")
+    config: Dict[str, Any] = Field(default_factory=dict)
+    interval_seconds: int = 60
+
+
+class RecommendationDecide(BaseModel):
+    status: str  # approved | rejected | executed
+
+
+class OutcomeCreate(BaseModel):
+    action_id: str
+    metric_name: str
+    value: float
+    meta: Dict[str, Any] = Field(default_factory=dict)
+    skill_id: Optional[str] = None
+    success_threshold: float = 0.0
+
+
+class SkillInvoke(BaseModel):
+    arguments: Dict[str, Any] = Field(default_factory=dict)

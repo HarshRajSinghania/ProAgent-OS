@@ -1,0 +1,43 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PROAGENT_ADMIN_KEY: ${PROAGENT_ADMIN_KEY:-dev-admin-key}
+      PROAGENT_DB_PATH: /app/data/proagent.db
+      PROAGENT_LLM_PROVIDER: ${PROAGENT_LLM_PROVIDER:-mock}
+      PROAGENT_LLM_BASE_URL: ${PROAGENT_LLM_BASE_URL:-}
+      PROAGENT_LLM_API_KEY: ${PROAGENT_LLM_API_KEY:-}
+      PROAGENT_LLM_MODEL: ${PROAGENT_LLM_MODEL:-gpt-4o-mini}
+      PROAGENT_SKILLS_DIRS: /app/skills,/app/verticals/example/skills
+      PROAGENT_AGENTS_CONFIG: /app/config/agents.yaml
+    volumes:
+      - proagent-data:/app/data
+    command: uvicorn proagent_os.main:app --host 0.0.0.0 --port 8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    environment:
+      PROAGENT_ADMIN_KEY: ${PROAGENT_ADMIN_KEY:-dev-admin-key}
+      PROAGENT_DB_PATH: /app/data/proagent.db
+      PROAGENT_LLM_PROVIDER: ${PROAGENT_LLM_PROVIDER:-mock}
+      PROAGENT_LLM_BASE_URL: ${PROAGENT_LLM_BASE_URL:-}
+      PROAGENT_LLM_API_KEY: ${PROAGENT_LLM_API_KEY:-}
+      PROAGENT_LLM_MODEL: ${PROAGENT_LLM_MODEL:-gpt-4o-mini}
+      PROAGENT_SKILLS_DIRS: /app/skills,/app/verticals/example/skills
+      PROAGENT_AGENTS_CONFIG: /app/config/agents.yaml
+    volumes:
+      - proagent-data:/app/data
+    command: python -m proagent_os.worker
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  proagent-data:

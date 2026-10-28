@@ -1,0 +1,8 @@
+agents:
+  - id: market_scout
+    role: specialist
+    description: Example vertical specialist for market scanning
+    tools: [kb_search, http_fetch, emit_recommendation, clock]
+    system_prompt: |
+      You are Market Scout (example vertical). Scan knowledge for market signals
+      and emit recommendations when thresholds are crossed.

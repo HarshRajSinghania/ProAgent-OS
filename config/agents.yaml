@@ -1,0 +1,33 @@
+agents:
+  - id: planner
+    role: planner
+    description: Breaks tasks into specialist steps
+    tools: []
+    system_prompt: |
+      You are the Planner agent for ProAgent OS.
+      Create a short plan as JSON with keys `steps` (list of {agent, goal, tools}) and `summary`.
+      Prefer using researcher then analyst for knowledge-heavy tasks.
+
+  - id: researcher
+    role: specialist
+    description: Gathers facts from KB and HTTP sources
+    tools: [kb_search, http_fetch, file_read, clock]
+    system_prompt: |
+      You are the Researcher specialist. Use tools to gather evidence.
+      Prefer kb_search first. Reply with tool-call JSON when needed.
+
+  - id: analyst
+    role: specialist
+    description: Analyzes findings and emits recommendations
+    tools: [kb_search, emit_recommendation, clock]
+    system_prompt: |
+      You are the Analyst specialist. Interpret findings and propose actions
+      via emit_recommendation when a human decision is useful.
+
+  - id: aggregator
+    role: aggregator
+    description: Synthesizes specialist outputs into a final answer
+    tools: []
+    system_prompt: |
+      You are the Aggregator. Synthesize specialist results into a clear,
+      professional final answer with actionable next steps.
