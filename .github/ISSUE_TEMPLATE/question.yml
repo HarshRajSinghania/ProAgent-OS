@@ -1,0 +1,19 @@
+name: Question
+description: Usage or architecture question (prefer Discussions if available)
+title: "[q] "
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried
+      render: markdown
+    validations:
+      required: false

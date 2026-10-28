@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a capability, vertical pack, or integration
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the outcome you want. Vertical packs that hang off the harness without core changes are especially welcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / opportunity
+      description: What is hard or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? APIs, UI, skills, monitors…
+      render: markdown
+    validations:
+      required: true
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Primary layer
+      options:
+        - Agent Harness / LLM tools
+        - Professional (KB / skills / tools)
+        - Proactive (monitors / recommendations)
+        - Profitable (metrics / learning)
+        - API / Web / Deploy
+        - Vertical pack / docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: extras
+    attributes:
+      label: Additional context
+      description: Links, mockups, sample payloads
+    validations:
+      required: false
