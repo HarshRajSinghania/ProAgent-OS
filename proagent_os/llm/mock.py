@@ -2,13 +2,65 @@ from __future__ import annotations
 
 import json
 import re
-from typing import List
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
-from proagent_os.llm.base import LLMMessage, LLMProvider, LLMResponse
+from proagent_os.llm.base import LLMMessage, LLMProvider, LLMResponse, ToolCall, ToolChoice
+
+
+def _agent_kind(role_hint: str) -> str:
+    """Identify specialist from system prompt identity, not skill body text."""
+    h = role_hint or ""
+    first = h.split("\n", 1)[0]
+    if "you are the researcher" in h or "researcher specialist" in h:
+        return "researcher"
+    if "you are the analyst" in h or "analyst specialist" in h:
+        return "analyst"
+    if "market scout" in h:
+        return "researcher"
+    if "you are the planner" in h:
+        return "planner"
+    if "you are the aggregator" in h:
+        return "aggregator"
+    if "researcher" in first:
+        return "researcher"
+    if "analyst" in first:
+        return "analyst"
+    return "specialist"
+
+
+def _tc(name: str, arguments: Dict[str, Any]) -> ToolCall:
+    return ToolCall(
+        id=f"call_{uuid4().hex[:10]}",
+        name=name,
+        arguments=arguments,
+        raw_arguments=json.dumps(arguments, ensure_ascii=False),
+    )
+
+
+def _tool_names(tools: Optional[List[Dict[str, Any]]]) -> List[str]:
+    if not tools:
+        return []
+    names: List[str] = []
+    for t in tools:
+        fn = t.get("function") if isinstance(t, dict) else None
+        if isinstance(fn, dict) and fn.get("name"):
+            names.append(str(fn["name"]))
+        elif isinstance(t, dict) and t.get("name"):
+            names.append(str(t["name"]))
+    return names
+
+
+def _extract_query(text: str) -> str:
+    m = re.search(r"(?:task|query|question|goal)\s*[:=]\s*(.+)", text, re.I)
+    if m:
+        return m.group(1).strip()[:200]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    return lines[-1][:200] if lines else "overview"
 
 
 class MockLLMProvider(LLMProvider):
-    """Deterministic offline LLM stub for demos and tests."""
+    """Deterministic offline LLM stub with native multi-step tool_calls."""
 
     async def chat(
         self,
@@ -16,23 +68,28 @@ class MockLLMProvider(LLMProvider):
         *,
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: ToolChoice = None,
     ) -> LLMResponse:
-        joined = "\n".join(m.content for m in messages)
+        joined = "\n".join((m.content or "") for m in messages)
         role_hint = ""
         for m in messages:
             if m.role == "system":
-                role_hint = m.content.lower()
+                role_hint = (m.content or "").lower()
                 break
 
-        # Planner: emit JSON plan
-        if "planner" in role_hint or "create a short plan" in joined.lower():
+        tool_names = _tool_names(tools)
+        prior_tool_msgs = [m for m in messages if m.role == "tool"]
+        prior_assistant_tool_rounds = sum(1 for m in messages if m.role == "assistant" and m.tool_calls)
+
+        if not tools and ("planner" in role_hint or "create a short plan" in joined.lower()):
             content = json.dumps(
                 {
                     "steps": [
                         {
                             "agent": "researcher",
                             "goal": "Gather relevant knowledge and facts",
-                            "tools": ["kb_search", "http_fetch"],
+                            "tools": ["kb_search", "http_fetch", "clock"],
                         },
                         {
                             "agent": "analyst",
@@ -45,8 +102,7 @@ class MockLLMProvider(LLMProvider):
             )
             return LLMResponse(content=content, model="mock-planner")
 
-        # Aggregator
-        if "aggregator" in role_hint or "synthesize" in joined.lower():
+        if not tools and ("aggregator" in role_hint or "synthesize" in joined.lower()):
             return LLMResponse(
                 content=(
                     "## Summary\n"
@@ -58,38 +114,48 @@ class MockLLMProvider(LLMProvider):
                 model="mock-aggregator",
             )
 
-        # Specialist with optional tool call format
-        if "use tools" in role_hint or "tool" in role_hint:
-            if "kb_search" in role_hint or "researcher" in role_hint:
-                query = _extract_query(joined)
-                content = json.dumps(
-                    {
-                        "thought": "Searching knowledge base for relevant context.",
-                        "tool_calls": [{"name": "kb_search", "arguments": {"query": query, "top_k": 3}}],
-                        "answer": "",
-                    }
-                )
-                return LLMResponse(content=content, model="mock-researcher")
-            if "analyst" in role_hint or "recommend" in role_hint:
-                content = json.dumps(
-                    {
-                        "thought": "Drafting an actionable recommendation from findings.",
-                        "tool_calls": [
-                            {
-                                "name": "emit_recommendation",
-                                "arguments": {
-                                    "title": "Review and act on latest findings",
-                                    "rationale": "Mock analyst suggests a proactive follow-up based on KB/context.",
-                                    "action": {"type": "review", "priority": "medium"},
-                                },
-                            }
-                        ],
-                        "answer": "Recommendation drafted for human approval.",
-                    }
-                )
-                return LLMResponse(content=content, model="mock-analyst")
+        if tools:
+            return self._specialist_with_tools(
+                messages=messages,
+                role_hint=role_hint,
+                joined=joined,
+                tool_names=tool_names,
+                prior_tool_msgs=prior_tool_msgs,
+                prior_assistant_tool_rounds=prior_assistant_tool_rounds,
+                tool_choice=tool_choice,
+            )
 
-        # Default answer after tools
+        # Legacy JSON-in-content path
+        kind = _agent_kind(role_hint)
+        if kind == "analyst":
+            content = json.dumps(
+                {
+                    "thought": "Drafting an actionable recommendation from findings.",
+                    "tool_calls": [
+                        {
+                            "name": "emit_recommendation",
+                            "arguments": {
+                                "title": "Review and act on latest findings",
+                                "rationale": "Mock analyst suggests a proactive follow-up based on KB/context.",
+                                "action": {"type": "review", "priority": "medium"},
+                            },
+                        }
+                    ],
+                    "answer": "",
+                }
+            )
+            return LLMResponse(content=content, model="mock-analyst-legacy")
+        if kind == "researcher" or "tool" in role_hint:
+            query = _extract_query(joined)
+            content = json.dumps(
+                {
+                    "thought": "Searching knowledge base for relevant context.",
+                    "tool_calls": [{"name": "kb_search", "arguments": {"query": query, "top_k": 3}}],
+                    "answer": "",
+                }
+            )
+            return LLMResponse(content=content, model="mock-researcher-legacy")
+
         return LLMResponse(
             content=(
                 "I reviewed the available context and tool results. "
@@ -99,11 +165,78 @@ class MockLLMProvider(LLMProvider):
             model="mock-default",
         )
 
+    def _specialist_with_tools(
+        self,
+        *,
+        messages: List[LLMMessage],
+        role_hint: str,
+        joined: str,
+        tool_names: List[str],
+        prior_tool_msgs: List[LLMMessage],
+        prior_assistant_tool_rounds: int,
+        tool_choice: ToolChoice,
+    ) -> LLMResponse:
+        if tool_choice == "none":
+            return LLMResponse(
+                content="Final answer without further tools (tool_choice=none).",
+                model="mock-forced-none",
+            )
 
-def _extract_query(text: str) -> str:
-    m = re.search(r"(?:task|query|question)\s*[:=]\s*(.+)", text, re.I)
-    if m:
-        return m.group(1).strip()[:200]
-    # last user-ish line
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-    return lines[-1][:200] if lines else "overview"
+        kind = _agent_kind(role_hint)
+
+        if kind == "researcher":
+            if prior_assistant_tool_rounds == 0 and "kb_search" in tool_names:
+                query = _extract_query(joined)
+                return LLMResponse(
+                    content=None,
+                    model="mock-researcher",
+                    tool_calls=[_tc("kb_search", {"query": query, "top_k": 3})],
+                )
+            if prior_assistant_tool_rounds == 1 and "clock" in tool_names:
+                return LLMResponse(
+                    content=None,
+                    model="mock-researcher",
+                    tool_calls=[_tc("clock", {})],
+                )
+            return LLMResponse(
+                content=(
+                    "Research complete. KB and clock tools were used. "
+                    "Findings support a conversion/activation follow-up."
+                ),
+                model="mock-researcher",
+            )
+
+        if kind == "analyst":
+            if prior_assistant_tool_rounds == 0 and "emit_recommendation" in tool_names:
+                return LLMResponse(
+                    content=None,
+                    model="mock-analyst",
+                    tool_calls=[
+                        _tc(
+                            "emit_recommendation",
+                            {
+                                "title": "Review and act on latest findings",
+                                "rationale": "Mock analyst suggests a proactive follow-up based on KB/context.",
+                                "action": {"type": "review", "priority": "medium"},
+                            },
+                        )
+                    ],
+                )
+            if prior_assistant_tool_rounds == 0 and "kb_search" in tool_names:
+                return LLMResponse(
+                    content=None,
+                    model="mock-analyst",
+                    tool_calls=[_tc("kb_search", {"query": _extract_query(joined), "top_k": 3})],
+                )
+            return LLMResponse(
+                content="Recommendation drafted for human approval. Analysis complete.",
+                model="mock-analyst",
+            )
+
+        if prior_assistant_tool_rounds == 0 and tool_names:
+            name = tool_names[0]
+            args: Dict[str, Any] = {}
+            if name == "kb_search":
+                args = {"query": _extract_query(joined), "top_k": 3}
+            return LLMResponse(content=None, model="mock-specialist", tool_calls=[_tc(name, args)])
+        return LLMResponse(content="Specialist finished after tool use.", model="mock-specialist")

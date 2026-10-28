@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 
 @dataclass
@@ -23,13 +23,32 @@ class ToolResult:
 class Tool(ABC):
     name: str
     description: str
+    parameters: Dict[str, Any] = {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": True,
+    }
 
     @abstractmethod
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         raise NotImplementedError
 
     def schema(self) -> Dict[str, Any]:
-        return {"name": self.name, "description": self.description}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        }
+
+    def openai_tool(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters or {"type": "object", "properties": {}},
+            },
+        }
 
 
 class ToolRegistry:
@@ -44,6 +63,16 @@ class ToolRegistry:
 
     def list(self) -> List[Dict[str, Any]]:
         return [t.schema() for t in self._tools.values()]
+
+    def openai_tools(self, names: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
+        if names is None:
+            return [t.openai_tool() for t in self._tools.values()]
+        out: List[Dict[str, Any]] = []
+        for name in names:
+            tool = self._tools.get(name)
+            if tool:
+                out.append(tool.openai_tool())
+        return out
 
     async def invoke(self, name: str, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         tool = self.get(name)

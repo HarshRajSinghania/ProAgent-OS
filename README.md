@@ -66,12 +66,26 @@ docker compose up --build
 |----------|---------|---------|
 | `PROAGENT_ADMIN_KEY` | `dev-admin-key` | Bootstrap / list tenants |
 | `PROAGENT_DB_PATH` | `./data/proagent.db` | SQLite path |
-| `PROAGENT_LLM_PROVIDER` | `mock` | `mock` or `openai` |
-| `PROAGENT_LLM_BASE_URL` | OpenAI URL | OpenAI-compatible base |
-| `PROAGENT_LLM_API_KEY` | empty | Required for real LLM |
-| `PROAGENT_LLM_MODEL` | `gpt-4o-mini` | Model id |
+| `PROAGENT_LLM_PROVIDER` | `mock` | `mock` (offline) or `openai` (OpenAI-compatible `/v1/chat/completions`) |
+| `PROAGENT_LLM_BASE_URL` | `https://api.openai.com/v1` | Base URL for OpenAI-compatible APIs (vLLM, Ollama compat, proxies, etc.) |
+| `PROAGENT_LLM_API_KEY` | empty | Bearer token. If empty while `openai` is selected, factory falls back to mock |
+| `PROAGENT_LLM_MODEL` | `gpt-4o-mini` | Model id sent in the chat payload |
+| `PROAGENT_MAX_TOOL_ROUNDS` | `8` | Max native tool-calling rounds per specialist |
 | `PROAGENT_SKILLS_DIRS` | `./skills,./verticals/example/skills` | Skill pack roots |
 | `PROAGENT_AGENTS_CONFIG` | `./config/agents.yaml` | Core agent registry |
+
+### Enable a real LLM
+
+```bash
+export PROAGENT_LLM_PROVIDER=openai
+export PROAGENT_LLM_BASE_URL=https://api.openai.com/v1   # or your compatible endpoint
+export PROAGENT_LLM_API_KEY=sk-...                       # do not commit
+export PROAGENT_LLM_MODEL=gpt-4o-mini
+export PROAGENT_MAX_TOOL_ROUNDS=8
+python scripts/demo_live.py   # prints tool-round traces
+```
+
+Specialists use **native OpenAI-style `tools` / `tool_calls`** (with JSON-in-content fallback). Planner and aggregator stay text-only.
 
 Copy `.env.example` → `.env` as needed. **Never commit secrets.**
 

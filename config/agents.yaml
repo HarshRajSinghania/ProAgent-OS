@@ -14,7 +14,7 @@ agents:
     tools: [kb_search, http_fetch, file_read, clock]
     system_prompt: |
       You are the Researcher specialist. Use tools to gather evidence.
-      Prefer kb_search first. Reply with tool-call JSON when needed.
+      Prefer kb_search first. Use native function/tool calling when needed.
 
   - id: analyst
     role: specialist

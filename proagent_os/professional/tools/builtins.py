@@ -14,12 +14,18 @@ from proagent_os.professional.tools.base import Tool, ToolContext, ToolRegistry,
 class HttpFetchTool(Tool):
     name = "http_fetch"
     description = "Fetch a public HTTP(S) URL and return truncated text content."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "HTTP(S) URL or fixture://name"},
+        },
+        "required": ["url"],
+    }
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         url = arguments.get("url")
         if not url:
             return ToolResult(ok=False, output=None, error="url required")
-        # Local fixture scheme for offline demos
         if url.startswith("fixture://"):
             name = url.replace("fixture://", "")
             path = Path("fixtures") / name
@@ -36,6 +42,13 @@ class HttpFetchTool(Tool):
 class FileReadTool(Tool):
     name = "file_read"
     description = "Read a local text/markdown file under fixtures/ or data/ (sandboxed)."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Relative path under allowed roots"},
+        },
+        "required": ["path"],
+    }
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         path_str = arguments.get("path", "")
@@ -57,6 +70,14 @@ class FileReadTool(Tool):
 class KbSearchTool(Tool):
     name = "kb_search"
     description = "Search the tenant knowledge base with keyword/BM25-style retrieval."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "top_k": {"type": "integer", "default": 5},
+        },
+        "required": ["query"],
+    }
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         query = arguments.get("query", "")
@@ -69,6 +90,7 @@ class KbSearchTool(Tool):
 class ClockTool(Tool):
     name = "clock"
     description = "Return the current UTC timestamp."
+    parameters = {"type": "object", "properties": {}}
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         now = datetime.now(timezone.utc)
@@ -81,6 +103,15 @@ class ClockTool(Tool):
 class EmitRecommendationTool(Tool):
     name = "emit_recommendation"
     description = "Propose an actionable recommendation for human-in-the-loop approval."
+    parameters = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "rationale": {"type": "string"},
+            "action": {"type": "object"},
+        },
+        "required": ["title"],
+    }
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
         title = arguments.get("title") or "Untitled recommendation"

@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
-from proagent_os.db import dumps, get_db, loads, new_id, utcnow
+from proagent_os.config import get_settings
+from proagent_os.db import dumps, get_db, new_id, utcnow
 from proagent_os.harness.memory import ConversationMemory
 from proagent_os.harness.registry import AgentRegistry
-from proagent_os.llm.base import LLMMessage, LLMProvider
+from proagent_os.llm.base import LLMMessage, LLMProvider, LLMResponse, ToolCall
 from proagent_os.professional.brand.store import BrandStore
 from proagent_os.professional.skills.loader import SkillLoader
 from proagent_os.professional.tools.base import ToolContext, ToolRegistry
 
 
-def _extract_json(text: str) -> Any:
+def _extract_json(text: Optional[str]) -> Any:
+    if not text:
+        return None
     text = text.strip()
     try:
         return json.loads(text)
@@ -27,6 +31,42 @@ def _extract_json(text: str) -> Any:
     return None
 
 
+def _args_summary(arguments: Dict[str, Any], limit: int = 240) -> str:
+    try:
+        s = json.dumps(arguments, ensure_ascii=False, default=str)
+    except TypeError:
+        s = str(arguments)
+    return s if len(s) <= limit else s[: limit - 3] + "..."
+
+
+def _legacy_tool_calls_from_content(content: Optional[str]) -> Tuple[List[ToolCall], Optional[str]]:
+    """Compat: parse old JSON-in-content {tool_calls, answer} into ToolCall list."""
+    parsed = _extract_json(content)
+    if not isinstance(parsed, dict):
+        return [], None
+    raw_calls = parsed.get("tool_calls") or []
+    answer = parsed.get("answer")
+    if not raw_calls:
+        return [], answer if isinstance(answer, str) else None
+    calls: List[ToolCall] = []
+    for i, call in enumerate(raw_calls):
+        if not isinstance(call, dict):
+            continue
+        name = call.get("name") or ""
+        args = call.get("arguments") or {}
+        if not isinstance(args, dict):
+            args = {"value": args}
+        calls.append(
+            ToolCall(
+                id=call.get("id") or f"legacy_{i}",
+                name=name,
+                arguments=args,
+                raw_arguments=json.dumps(args, ensure_ascii=False),
+            )
+        )
+    return calls, answer if isinstance(answer, str) else None
+
+
 class Orchestrator:
     """Planner → Specialist agents → Aggregator run loop."""
 
@@ -36,6 +76,8 @@ class Orchestrator:
         agents: AgentRegistry,
         tools: ToolRegistry,
         skills: SkillLoader,
+        *,
+        max_tool_rounds: Optional[int] = None,
     ) -> None:
         self.llm = llm
         self.agents = agents
@@ -44,6 +86,8 @@ class Orchestrator:
         self.memory = ConversationMemory()
         self.brand = BrandStore()
         self.db = get_db()
+        settings = get_settings()
+        self.max_tool_rounds = max_tool_rounds if max_tool_rounds is not None else settings.max_tool_rounds
 
     async def run_task(
         self,
@@ -78,7 +122,6 @@ class Orchestrator:
         brand = self.brand.get(tenant_id)
         brand_block = brand.prompt_block() if brand else f"Tenant: {tenant_id}"
 
-        # 1) Plan
         plan = await self._plan(input_text, brand_block, trace)
         self.db.update(
             "tasks",
@@ -87,7 +130,6 @@ class Orchestrator:
             (task_id,),
         )
 
-        # 2) Execute specialist steps
         step_results: List[Dict[str, Any]] = []
         ctx = ToolContext(tenant_id=tenant_id, task_id=task_id)
         for step in plan.get("steps", []):
@@ -96,7 +138,6 @@ class Orchestrator:
             result = await self._run_specialist(agent_id, goal, input_text, brand_block, ctx, trace)
             step_results.append({"agent": agent_id, "goal": goal, "result": result})
 
-        # 3) Aggregate
         final = await self._aggregate(input_text, step_results, brand_block, trace)
 
         self.db.update(
@@ -134,12 +175,12 @@ class Orchestrator:
         resp = await self.llm.chat(messages)
         parsed = _extract_json(resp.content) or {
             "steps": [
-                {"agent": "researcher", "goal": task, "tools": ["kb_search"]},
+                {"agent": "researcher", "goal": task, "tools": ["kb_search", "clock"]},
                 {"agent": "analyst", "goal": "Analyze and recommend", "tools": ["emit_recommendation"]},
             ],
             "summary": "Default two-step plan",
         }
-        trace.append({"phase": "plan", "model": resp.model, "raw": resp.content, "parsed": parsed})
+        trace.append({"phase": "plan", "model": resp.model, "raw": (resp.content or "")[:2000], "parsed": parsed})
         return parsed
 
     async def _run_specialist(
@@ -152,68 +193,123 @@ class Orchestrator:
         trace: List[Dict[str, Any]],
     ) -> str:
         spec = self.agents.get(agent_id)
-        tools_allowed = (spec.tools if spec else []) or ["kb_search", "clock"]
+        tools_allowed = list((spec.tools if spec else []) or ["kb_search", "clock"])
+        schemas = self.tools.openai_tools(tools_allowed)
         skill_bits = "\n\n".join(s.prompt_snippet() for s in self.skills.list()[:5])
         system = (spec.system_prompt if spec else "") or f"You are the {agent_id} specialist."
         system += (
-            "\nYou may use tools. When you need a tool, reply with JSON: "
-            '{"thought":"...","tool_calls":[{"name":"...","arguments":{...}}],"answer":""}. '
-            "When done, put the final answer in `answer` and leave tool_calls empty."
+            "\nUse the provided tools via native function calling when helpful. "
+            "After tools return, continue until you can give a final textual answer "
+            "with no further tool calls."
             f"\nAllowed tools: {tools_allowed}\n\n{brand_block}\n\nSkills:\n{skill_bits}"
         )
-        messages = [
+        messages: List[LLMMessage] = [
             LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=f"Overall task: {task}\nYour goal: {goal}"),
         ]
 
-        tool_outputs: List[Dict[str, Any]] = []
         answer = ""
-        for round_i in range(3):
-            resp = await self.llm.chat(messages)
-            parsed = _extract_json(resp.content)
+        for round_i in range(self.max_tool_rounds):
+            resp = await self.llm.chat(messages, tools=schemas or None, tool_choice="auto" if schemas else None)
+            tool_calls = list(resp.tool_calls or [])
+            legacy_answer: Optional[str] = None
+
+            # Compat fallback: JSON-in-content tool protocol
+            if not tool_calls and resp.content:
+                legacy_calls, legacy_answer = _legacy_tool_calls_from_content(resp.content)
+                if legacy_calls:
+                    tool_calls = legacy_calls
+
             trace.append(
                 {
                     "phase": "specialist",
                     "agent": agent_id,
                     "round": round_i,
                     "model": resp.model,
-                    "raw": resp.content[:2000],
+                    "content_preview": (resp.content or "")[:500],
+                    "tool_call_count": len(tool_calls),
+                    "tool_call_names": [tc.name for tc in tool_calls],
                 }
             )
-            if not isinstance(parsed, dict):
-                answer = resp.content
+
+            if not tool_calls:
+                answer = (resp.content or legacy_answer or "").strip()
+                if not answer and legacy_answer:
+                    answer = legacy_answer
                 break
-            calls = parsed.get("tool_calls") or []
-            if parsed.get("answer") and not calls:
-                answer = parsed["answer"]
-                break
-            if not calls:
-                answer = parsed.get("answer") or resp.content
-                break
-            for call in calls:
-                name = call.get("name")
-                if name not in tools_allowed and tools_allowed:
-                    # still allow emit_recommendation / kb_search commonly
-                    if name not in {"kb_search", "emit_recommendation", "clock"}:
-                        tool_outputs.append({"name": name, "error": "tool not allowed"})
-                        continue
-                result = await self.tools.invoke(name, call.get("arguments") or {}, ctx)
-                tool_outputs.append({"name": name, "ok": result.ok, "output": result.output, "error": result.error})
-                trace.append({"phase": "tool", "agent": agent_id, "tool": name, "result": result.output, "error": result.error})
-            messages.append(LLMMessage(role="assistant", content=resp.content))
+
+            # Append assistant message with tool_calls (OpenAI wire format)
             messages.append(
                 LLMMessage(
-                    role="user",
-                    content="Tool results:\n" + json.dumps(tool_outputs[-len(calls):], ensure_ascii=False) + "\nContinue; finish with answer JSON if done.",
+                    role="assistant",
+                    content=resp.content,
+                    tool_calls=tool_calls,
                 )
             )
-            # After tools, ask once more for final answer without forcing more tools
-            if round_i == 1:
-                # nudge default mock path
-                pass
+
+            for tc in tool_calls:
+                allowed = tc.name in tools_allowed or tc.name in {
+                    "kb_search",
+                    "emit_recommendation",
+                    "clock",
+                }
+                t0 = time.perf_counter()
+                if not allowed:
+                    ok, output, error = False, None, f"tool not allowed: {tc.name}"
+                else:
+                    result = await self.tools.invoke(tc.name, tc.arguments or {}, ctx)
+                    ok, output, error = result.ok, result.output, result.error
+                latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+                payload = {
+                    "ok": ok,
+                    "output": output,
+                    "error": error,
+                }
+                messages.append(
+                    LLMMessage(
+                        role="tool",
+                        content=json.dumps(payload, ensure_ascii=False, default=str),
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                    )
+                )
+                trace.append(
+                    {
+                        "phase": "tool",
+                        "agent": agent_id,
+                        "round": round_i,
+                        "id": tc.id,
+                        "name": tc.name,
+                        "args_summary": _args_summary(tc.arguments or {}),
+                        "ok": ok,
+                        "error": error,
+                        "latency_ms": latency_ms,
+                        "output_preview": _args_summary({"output": output}, limit=400) if ok else None,
+                    }
+                )
+        else:
+            # Max rounds exhausted — ask once more without tools for a final answer
+            resp = await self.llm.chat(
+                messages
+                + [LLMMessage(role="user", content="Max tool rounds reached. Provide your final answer now.")],
+                tools=None,
+                tool_choice=None,
+            )
+            answer = (resp.content or "").strip()
+            trace.append(
+                {
+                    "phase": "specialist",
+                    "agent": agent_id,
+                    "round": self.max_tool_rounds,
+                    "model": resp.model,
+                    "note": "max_tool_rounds_forced_final",
+                    "content_preview": answer[:500],
+                }
+            )
 
         if not answer:
-            answer = json.dumps({"goal": goal, "tool_outputs": tool_outputs}, ensure_ascii=False)
+            answer = f"[{agent_id}] completed {sum(1 for t in trace if t.get('phase')=='tool' and t.get('agent')==agent_id)} tool call(s); no textual final answer."
         return answer
 
     async def _aggregate(
@@ -235,5 +331,6 @@ class Orchestrator:
             ),
         ]
         resp = await self.llm.chat(messages)
-        trace.append({"phase": "aggregate", "model": resp.model, "raw": resp.content[:2000]})
-        return resp.content
+        raw = resp.content or ""
+        trace.append({"phase": "aggregate", "model": resp.model, "raw": raw[:2000]})
+        return raw

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     skills_dirs: str = "./skills,./verticals/example/skills"
     agents_config: str = "./config/agents.yaml"
     fixtures_dir: str = "./fixtures"
+    max_tool_rounds: int = 8  # specialist tool-calling loop limit
 
     @property
     def skills_dir_list(self) -> List[Path]:
