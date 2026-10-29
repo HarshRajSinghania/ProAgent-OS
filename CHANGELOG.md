@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Recorded mock demo: `docs/demo.svg` (SMIL terminal animation) and `docs/demo.cast` (asciinema v2), captured from `scripts/demo.py` and a short `scripts/demo_support_desk.py` beat with `PROAGENT_LLM_PROVIDER=mock`. Regenerate with `python scripts/record_demo.py`.
 - Tenant API keys can be rotated and revoked. `POST /api/v1/tenants/me/api-key/rotate` and `.../revoke` use the tenant bearer. Admin uses `POST /api/v1/tenants/{tenant_id}/api-key/rotate` and `.../revoke`. Rotate is a hard cutover (no grace window). A revoked key returns 401 until an admin rotate mints a replacement. `tenant_api_key_audit` stores a prefix and SHA-256, not the raw key. Existing databases gain `tenants.key_status` on startup.
 - In-process fixed-window rate limit on `/api/v1` (`PROAGENT_RATE_LIMIT_ENABLED`, `PROAGENT_RATE_LIMIT_REQUESTS`, `PROAGENT_RATE_LIMIT_WINDOW_SECONDS`). Over the limit the response is HTTP 429 `{"detail":"Rate limit exceeded"}` with `Retry-After`. No Redis. Counters are per process.
 - Recommendation executors: `off`, `noop` (default), and `webhook`. Approve writes `recommendation_audit` (`decided`, `executed`, `execute_failed`). Webhook POSTs only to `PROAGENT_EXECUTOR_WEBHOOK_URL`; the action payload is JSON, not a URL or command. The mock demo marks the monitor recommendation executed without network.

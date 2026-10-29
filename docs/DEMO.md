@@ -4,6 +4,38 @@ Offline path. No API key and no network call to a model. The script forces `PROA
 
 Identifiers (`ten_…`, `task_…`, `mon_…`, `rec_…`, `out_…`, `mem_…`) change every run. The titles, plan, mock answer, skill list, and agent list below are stable on the current fixtures.
 
+## Watch it first
+
+The picture is a real run of the mock path. Nothing to install if you only want to watch.
+
+[![ProAgent OS mock demo](demo.svg)](demo.cast)
+
+- [`demo.svg`](demo.svg) — animated terminal (SMIL). It plays in a browser and in the README on GitHub.
+- [`demo.cast`](demo.cast) — the same session as asciinema v2.
+
+```bash
+asciinema play docs/demo.cast
+```
+
+What was recorded, with `PROAGENT_LLM_PROVIDER=mock`, no API key, and no model network call:
+
+```bash
+python scripts/demo.py
+python scripts/demo_support_desk.py
+```
+
+`scripts/demo.py` is the full path: tenant, knowledge base, task, monitor, noop executor, outcome. The support-desk script is the shorter second beat (policy search, `ticket_triage`, and a follow-up the noop executor marks executed without sending a reply).
+
+Lines longer than 100 columns are wrapped on spaces so the frame stays readable. The words are the scripts' stdout. Identifiers change when the recording is regenerated.
+
+Re-record from the repo root after the install in [Setup](#setup):
+
+```bash
+python scripts/record_demo.py
+```
+
+That overwrites `docs/demo.cast` and `docs/demo.svg`. Child processes force the mock provider, drop provider credentials, and use a temporary SQLite file. No database is committed.
+
 ## Setup
 
 From a fresh clone:
@@ -24,6 +56,8 @@ Python 3.11 or newer. The demo needs the install above; it does not need Docker 
 ```bash
 python scripts/demo.py
 ```
+
+That command is the first half of the recording in [Watch it first](#watch-it-first). `python scripts/record_demo.py` runs it again, then `python scripts/demo_support_desk.py`, and refreshes `docs/demo.cast` and `docs/demo.svg`.
 
 What the script sets for you (only if the variable is unset):
 

@@ -24,6 +24,10 @@ Product name: **ProAgent OS** (`proagent-os`). Original design and code. It is a
 
 Mock LLM, no API keys. The offline script is the one-minute path to a green run. Step-by-step output is in [docs/DEMO.md](docs/DEMO.md).
 
+[![ProAgent OS mock demo](docs/demo.svg)](docs/DEMO.md)
+
+Recorded with `PROAGENT_LLM_PROVIDER=mock` (no API key): `python scripts/demo.py`, then a short `python scripts/demo_support_desk.py` beat. Same session: [`docs/demo.cast`](docs/demo.cast) (`asciinema play docs/demo.cast`). Re-record with `python scripts/record_demo.py`.
+
 ```bash
 git clone https://github.com/jahonn/ProAgent-OS.git
 cd ProAgent-OS
@@ -215,7 +219,8 @@ proagent-os/
 ├── skills/
 ├── verticals/example/       # Minimal vertical pattern
 ├── verticals/support_desk/  # Support desk pack (policies, triage, demo)
-├── scripts/demo.py · demo_live.py · demo_support_desk.py
+├── scripts/demo.py · demo_live.py · demo_support_desk.py · record_demo.py
+├── docs/DEMO.md · demo.cast · demo.svg
 ├── tests/
 └── docker-compose.yml
 ```
