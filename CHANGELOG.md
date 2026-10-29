@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Recommendation executors: `off`, `noop` (default), and `webhook`. Approve writes `recommendation_audit` (`decided`, `executed`, `execute_failed`). Webhook POSTs only to `PROAGENT_EXECUTOR_WEBHOOK_URL`; the action payload is JSON, not a URL or command. The mock demo marks the monitor recommendation executed without network.
+- Support desk vertical (`verticals/support_desk/`): sample policies, `support_triage`, `ticket_triage` and `policy_lookup` skills, and `scripts/demo_support_desk.py`. Startup merges every `verticals/*/agents/agents.yaml`. The support demo approves through the default noop executor.
 - README scan path for first-time visitors: one-line product description, who it is for, a positioning table, and a harness architecture diagram.
 - Scripted mock-demo notes in `docs/DEMO.md` (commands and the output to expect). No API key required.
 - This changelog. The `v0.1.0` GitHub Release tag is not published yet; cutting it is tracked in [issue #2](https://github.com/jahonn/ProAgent-OS/issues/2).

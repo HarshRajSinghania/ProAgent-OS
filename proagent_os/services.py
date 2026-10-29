@@ -21,10 +21,9 @@ class AppServices:
         settings = get_settings()
         self.settings = settings
         self.agents = AgentRegistry(Path(settings.agents_config))
-        # Merge example vertical agents if present
-        vertical_agents = Path("verticals/example/agents/agents.yaml")
-        if vertical_agents.exists():
-            self.agents.merge_file(vertical_agents)
+        # Same discovery for every pack under verticals/*/agents/agents.yaml
+        # (example, support_desk, and later packs). Cwd is the repo root.
+        self.agents.merge_tree(Path("verticals"))
         self.tools = build_builtin_registry()
         self.skills = SkillLoader(settings.skills_dir_list)
         self.llm = get_llm()

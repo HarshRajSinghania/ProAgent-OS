@@ -170,7 +170,7 @@ docker compose up --build
 | `PROAGENT_KB_EMBED_BACKEND` | `stub` | Offline hash-bag embedder (only backend in this release) |
 | `PROAGENT_KB_EMBED_DIMS` | `64` | Stub embedding width |
 | `PROAGENT_KB_HYBRID_ALPHA` | `0.5` | Hybrid mix: `α * norm(vector) + (1 - α) * norm(BM25)` |
-| `PROAGENT_SKILLS_DIRS` | `./skills,./verticals/example/skills` | Skill pack roots |
+| `PROAGENT_SKILLS_DIRS` | `./skills,./verticals/example/skills,./verticals/support_desk/skills` | Skill pack roots |
 | `PROAGENT_AGENTS_CONFIG` | `./config/agents.yaml` | Core agent registry |
 
 ## Retrieval modes
@@ -210,20 +210,22 @@ proagent-os/
 │   └── web/                 # Console UI
 ├── config/agents.yaml
 ├── skills/
-├── verticals/example/       # How to add a vertical without core changes
-├── scripts/demo.py · demo_live.py
+├── verticals/example/       # Minimal vertical pattern
+├── verticals/support_desk/  # Support desk pack (policies, triage, demo)
+├── scripts/demo.py · demo_live.py · demo_support_desk.py
 ├── tests/
 └── docker-compose.yml
 ```
 
 ## Add a vertical pack
 
-1. Create `verticals/<your_vertical>/agents/agents.yaml`
-2. Add `verticals/<your_vertical>/skills/<id>/SKILL.md` (optional `run.py`)
-3. Append the skills path to `PROAGENT_SKILLS_DIRS`
-4. Restart API/worker — no core code changes required
+1. Create `verticals/<your_vertical>/agents/agents.yaml`. Startup merges every `verticals/*/agents/agents.yaml`. Core agents stay in `PROAGENT_AGENTS_CONFIG`.
+2. Add `verticals/<your_vertical>/skills/<id>/SKILL.md` (optional `run.py`).
+3. Append that skills directory to `PROAGENT_SKILLS_DIRS` if it is not already listed. The default includes `verticals/example/skills` and `verticals/support_desk/skills`.
+4. Restart the API and worker from the repo root. No other core code changes are required.
 
-See `verticals/example/` (`market_scout` + `market_scan`).
+`verticals/example/` is the minimal pattern (`market_scout` + `market_scan`).
+`verticals/support_desk/` is a support-desk pack: sample policies, `support_triage`, `ticket_triage` / `policy_lookup`, and `python scripts/demo_support_desk.py` (mock LLM, no API key). It is an MVP demo, not a production helpdesk.
 
 ## API overview
 
