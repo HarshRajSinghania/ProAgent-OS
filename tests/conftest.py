@@ -15,6 +15,10 @@ def _isolate_db(tmp_path, monkeypatch):
     monkeypatch.setenv("PROAGENT_DB_PATH", str(db_path))
     monkeypatch.setenv("PROAGENT_ADMIN_KEY", "test-admin-key")
     monkeypatch.setenv("PROAGENT_LLM_PROVIDER", "mock")
+    monkeypatch.setenv("PROAGENT_KB_RETRIEVAL", "bm25")
+    monkeypatch.setenv("PROAGENT_KB_EMBED_BACKEND", "stub")
+    monkeypatch.setenv("PROAGENT_KB_EMBED_DIMS", "64")
+    monkeypatch.setenv("PROAGENT_KB_HYBRID_ALPHA", "0.5")
     monkeypatch.setenv("PROAGENT_AGENTS_CONFIG", str(Path("config/agents.yaml").resolve()))
     monkeypatch.setenv(
         "PROAGENT_SKILLS_DIRS",

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import re
+import struct
 from collections import Counter
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 
 _TOKEN = re.compile(r"[a-z0-9_]+", re.I)
@@ -51,20 +53,121 @@ def bm25_scores(
     return scores
 
 
-def embedding_stub(text: str) -> List[float]:
-    """Deterministic hash-bag embedding stub (64 dims) for future vector backends."""
-    dims = 64
+def _stable_token_hash(token: str) -> int:
+    """Process-stable token hash. builtin hash() is salted per interpreter."""
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little", signed=False)
+
+
+def embedding_stub(text: str, dims: Optional[int] = None) -> List[float]:
+    """Deterministic hash-bag embedding for the offline stub backend.
+
+    Not a semantic model. Same tokens always land in the same dimensions
+    across processes. ``dims`` defaults to ``PROAGENT_KB_EMBED_DIMS`` (64).
+    """
+    if dims is None:
+        from proagent_os.config import get_settings
+
+        dims = int(get_settings().kb_embed_dims)
+    if dims < 1:
+        raise ValueError("dims must be positive")
     vec = [0.0] * dims
     for tok in tokenize(text):
-        h = hash(tok)
+        h = _stable_token_hash(tok)
         vec[h % dims] += 1.0
         vec[(h // dims) % dims] += 0.5
     norm = math.sqrt(sum(v * v for v in vec)) or 1.0
     return [v / norm for v in vec]
 
 
+def pack_embedding(vec: Sequence[float]) -> bytes:
+    """Little-endian float32 blob."""
+    return struct.pack(f"<{len(vec)}f", *[float(v) for v in vec])
+
+
+def unpack_embedding(blob: bytes) -> List[float]:
+    raw = bytes(blob)
+    if len(raw) % 4 != 0:
+        raise ValueError("embedding blob length is not a multiple of 4")
+    count = len(raw) // 4
+    return list(struct.unpack(f"<{count}f", raw))
+
+
+def cosine_similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    if not a or len(a) != len(b):
+        return 0.0
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na <= 0.0 or nb <= 0.0:
+        return 0.0
+    return dot / (math.sqrt(na) * math.sqrt(nb))
+
+
+def normalize_scores(scores: Sequence[float]) -> List[float]:
+    """Scale a signal by its maximum so the best candidate is 1.
+
+    Non-positive values contribute 0. An all-zero (or negative) signal
+    stays all zeros. Order of strictly positive scores is unchanged.
+    """
+    if not scores:
+        return []
+    peak = max(scores)
+    if peak <= 0.0:
+        return [0.0] * len(scores)
+    return [s / peak if s > 0.0 else 0.0 for s in scores]
+
+
+def hybrid_scores(
+    bm25: Sequence[float],
+    vector: Sequence[float],
+    alpha: float = 0.5,
+) -> List[float]:
+    """``alpha * norm(vector) + (1 - alpha) * norm(bm25)`` on one candidate set."""
+    if len(bm25) != len(vector):
+        raise ValueError("bm25 and vector scores must be the same length")
+    weight = min(1.0, max(0.0, float(alpha)))
+    lexical = normalize_scores(bm25)
+    semantic = normalize_scores(vector)
+    return [
+        weight * vec + (1.0 - weight) * lex
+        for lex, vec in zip(lexical, semantic)
+    ]
+
+
 def rank_chunks(query: str, chunks: Sequence[Dict], top_k: int = 5) -> List[Tuple[Dict, float]]:
     docs = [c.get("content", "") for c in chunks]
     scores = bm25_scores(query, docs)
+    ranked = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
+    return [(c, s) for c, s in ranked[:top_k] if s > 0]
+
+
+def rank_chunks_with_embeddings(
+    query: str,
+    chunks: Sequence[Dict],
+    embeddings: Sequence[Sequence[float]],
+    *,
+    mode: str = "hybrid",
+    alpha: float = 0.5,
+    top_k: int = 5,
+    dims: int = 64,
+) -> List[Tuple[Dict, float]]:
+    """Rank chunks by stub cosine (``vector``) or hybrid fusion.
+
+    ``mode='bm25'`` or a length mismatch delegates to :func:`rank_chunks`.
+    """
+    if mode == "bm25" or len(chunks) != len(embeddings):
+        return rank_chunks(query, chunks, top_k=top_k)
+    query_vec = embedding_stub(query, dims=dims)
+    vector_scores = [cosine_similarity(query_vec, emb) for emb in embeddings]
+    if mode == "vector":
+        scores = vector_scores
+    else:
+        docs = [c.get("content", "") for c in chunks]
+        scores = hybrid_scores(bm25_scores(query, docs), vector_scores, alpha=alpha)
     ranked = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
     return [(c, s) for c, s in ranked[:top_k] if s > 0]

@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
     FOREIGN KEY (document_id) REFERENCES kb_documents(id)
 );
 
+CREATE TABLE IF NOT EXISTS kb_chunk_embeddings (
+    chunk_id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    dims INTEGER NOT NULL,
+    embedding BLOB NOT NULL,
+    model TEXT NOT NULL,
+    FOREIGN KEY (chunk_id) REFERENCES kb_chunks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_chunk_embeddings_tenant
+    ON kb_chunk_embeddings(tenant_id);
+
 CREATE TABLE IF NOT EXISTS monitors (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,

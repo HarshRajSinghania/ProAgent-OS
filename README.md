@@ -22,7 +22,7 @@ Product name: **ProAgent OS** (`proagent-os`). Original design and code — not 
 | Layer | Capabilities |
 |-------|----------------|
 | **Agent Harness** | Planner → Specialists → Aggregator; YAML agent registry; **native OpenAI-style tool calls** (multi-round); SQLite task/trace memory |
-| **Professional** | KB ingest (URL/HTML, md/txt/html/pdf best-effort); BM25 retrieval; brand/tenant context; skill packs; MCP-style tools |
+| **Professional** | KB ingest (URL/HTML, md/txt/html/pdf best-effort); BM25 retrieval with optional offline hybrid stub; brand/tenant context; skill packs; MCP-style tools |
 | **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`); recommendation inbox; approve/reject API; APScheduler worker |
 | **Profitable** | `record_outcome`; skill weight nudges + tenant memory feedback; dashboard API |
 | **Commercial surface** | FastAPI `/api/v1/*`, Bearer API keys per tenant, web console, Docker Compose |
@@ -101,8 +101,33 @@ docker compose up --build
 | `PROAGENT_LLM_API_KEY` | empty | Bearer token; empty → mock fallback |
 | `PROAGENT_LLM_MODEL` | `gpt-4o-mini` | Model id |
 | `PROAGENT_MAX_TOOL_ROUNDS` | `8` | Max tool rounds per specialist |
+| `PROAGENT_KB_RETRIEVAL` | `bm25` | `bm25`, `hybrid`, or `vector` |
+| `PROAGENT_KB_EMBED_BACKEND` | `stub` | Offline hash-bag embedder (only backend in this release) |
+| `PROAGENT_KB_EMBED_DIMS` | `64` | Stub embedding width |
+| `PROAGENT_KB_HYBRID_ALPHA` | `0.5` | Hybrid mix: `α * norm(vector) + (1 - α) * norm(BM25)` |
 | `PROAGENT_SKILLS_DIRS` | `./skills,./verticals/example/skills` | Skill pack roots |
 | `PROAGENT_AGENTS_CONFIG` | `./config/agents.yaml` | Core agent registry |
+
+## Retrieval modes
+
+Search defaults to offline BM25. That path does not write embeddings and does not need extra packages, which is what CI runs.
+
+| Mode | Behavior |
+|------|----------|
+| `bm25` | Lexical BM25 only. |
+| `hybrid` | `α * norm(cosine) + (1 - α) * norm(BM25)`. Each signal is divided by its max over the candidate set (non-positive values contribute 0). |
+| `vector` | Cosine similarity on stored embeddings. |
+
+`PROAGENT_KB_EMBED_BACKEND=stub` is a pure-Python hash-bag, not a semantic model. `hybrid` and `vector` store vectors in `kb_chunk_embeddings` on ingest. If any chunk is missing an embedding, or the stored width does not match `PROAGENT_KB_EMBED_DIMS`, search uses BM25 instead of failing. `KnowledgeBase.reindex_embeddings()` backfills vectors and is safe to repeat. The mode is process-wide via the environment, not a field on `POST /api/v1/kb/search`.
+
+sqlite-vec, pgvector, and remote embedding providers are not wired yet. The optional `vec` extra (`sqlite-vec`) is only a placeholder for that follow-up.
+
+```bash
+export PROAGENT_KB_RETRIEVAL=hybrid
+export PROAGENT_KB_EMBED_BACKEND=stub
+export PROAGENT_KB_EMBED_DIMS=64
+export PROAGENT_KB_HYBRID_ALPHA=0.5
+```
 
 ## Architecture
 
@@ -168,7 +193,7 @@ Bug reports and feature ideas: use [GitHub Issues](https://github.com/jahonn/Pro
 
 ## Roadmap / honest gaps
 
-- Production vector search (pgvector / sqlite-vec), not only BM25
+- Production vector search (sqlite-vec / pgvector) and remote embedding providers. Offline hybrid retrieval with the pure-Python stub is available via `PROAGENT_KB_RETRIEVAL=hybrid`; the default remains BM25.
 - OAuth / SSO, RBAC, audit log, rate limits
 - Multi-node deploy, migrations, backups (beyond single SQLite)
 - Recommendation **executors** (today approve is status-only)
