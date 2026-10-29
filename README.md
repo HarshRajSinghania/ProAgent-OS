@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![CI](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml)
 [![GitHub issues](https://img.shields.io/github/issues/jahonn/ProAgent-OS)](https://github.com/jahonn/ProAgent-OS/issues)
 
 **Vertical-agnostic Pro-Agent framework** for building commercial agent products:
