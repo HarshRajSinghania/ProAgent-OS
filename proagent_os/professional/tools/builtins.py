@@ -69,7 +69,7 @@ class FileReadTool(Tool):
 
 class KbSearchTool(Tool):
     name = "kb_search"
-    description = "Search the tenant knowledge base with keyword/BM25-style retrieval."
+    description = "Search the tenant knowledge base (BM25 by default; honors PROAGENT_KB_RETRIEVAL)."
     parameters = {
         "type": "object",
         "properties": {

@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import struct
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from proagent_os.config import get_settings
 from proagent_os.db import get_db, new_id, utcnow
 from proagent_os.professional.kb.chunking import chunk_text
 from proagent_os.professional.kb.ingest import fetch_url_text, read_local_file
-from proagent_os.professional.kb.retrieve import rank_chunks
+from proagent_os.professional.kb.retrieve import (
+    embedding_stub,
+    pack_embedding,
+    rank_chunks,
+    rank_chunks_with_embeddings,
+    unpack_embedding,
+)
 
 
 class KnowledgeBase:
@@ -27,11 +35,13 @@ class KnowledgeBase:
             },
         )
         chunks = chunk_text(content)
+        store_vectors = get_settings().kb_retrieval != "bm25"
         for i, ch in enumerate(chunks):
+            chunk_id = new_id("chk")
             self.db.insert(
                 "kb_chunks",
                 {
-                    "id": new_id("chk"),
+                    "id": chunk_id,
                     "document_id": doc_id,
                     "tenant_id": tenant_id,
                     "chunk_index": i,
@@ -39,6 +49,8 @@ class KnowledgeBase:
                     "tokens_estimate": max(1, len(ch.split())),
                 },
             )
+            if store_vectors:
+                self._upsert_embedding(chunk_id, tenant_id, ch)
         return {"document_id": doc_id, "title": title, "chunks": len(chunks), "source": source}
 
     async def ingest_url(self, tenant_id: str, url: str) -> Dict[str, Any]:
@@ -56,22 +68,123 @@ class KnowledgeBase:
         )
 
     def search(self, tenant_id: str, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        chunks = self.db.fetchall(
+        chunks = self._load_chunks(tenant_id)
+        settings = get_settings()
+        if settings.kb_retrieval == "bm25":
+            ranked = rank_chunks(query, chunks, top_k=top_k)
+        else:
+            ranked = self._rank_embedded(tenant_id, query, chunks, top_k=top_k)
+        return [_hit(c, score) for c, score in ranked]
+
+    def reindex_embeddings(self, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """Write stub embeddings for existing chunks. Safe to run more than once."""
+        settings = get_settings()
+        if tenant_id:
+            chunks = self.db.fetchall(
+                "SELECT id, tenant_id, content FROM kb_chunks WHERE tenant_id=?",
+                (tenant_id,),
+            )
+        else:
+            chunks = self.db.fetchall("SELECT id, tenant_id, content FROM kb_chunks")
+        for ch in chunks:
+            self._upsert_embedding(ch["id"], ch["tenant_id"], ch["content"])
+        return {
+            "chunks": len(chunks),
+            "upserted": len(chunks),
+            "dims": int(settings.kb_embed_dims),
+            "model": settings.kb_embed_backend,
+        }
+
+    def _load_chunks(self, tenant_id: str) -> List[Dict[str, Any]]:
+        return self.db.fetchall(
             "SELECT c.id, c.content, c.document_id, c.chunk_index, d.title, d.source "
             "FROM kb_chunks c JOIN kb_documents d ON d.id = c.document_id "
             "WHERE c.tenant_id=?",
             (tenant_id,),
         )
-        ranked = rank_chunks(query, chunks, top_k=top_k)
-        return [
-            {
-                "chunk_id": c["id"],
-                "document_id": c["document_id"],
-                "title": c["title"],
-                "source": c["source"],
-                "chunk_index": c["chunk_index"],
-                "score": round(score, 4),
-                "content": c["content"][:1000],
-            }
-            for c, score in ranked
-        ]
+
+    def _rank_embedded(
+        self,
+        tenant_id: str,
+        query: str,
+        chunks: Sequence[Dict[str, Any]],
+        *,
+        top_k: int,
+    ) -> List[Tuple[Dict[str, Any], float]]:
+        """Hybrid or vector rank. Incomplete embeddings fall back to BM25."""
+        if not chunks:
+            return []
+        settings = get_settings()
+        vectors = self._aligned_vectors(tenant_id, chunks, dims=int(settings.kb_embed_dims))
+        if vectors is None:
+            return rank_chunks(query, chunks, top_k=top_k)
+        return rank_chunks_with_embeddings(
+            query,
+            chunks,
+            vectors,
+            mode=settings.kb_retrieval,
+            alpha=float(settings.kb_hybrid_alpha),
+            top_k=top_k,
+            dims=int(settings.kb_embed_dims),
+        )
+
+    def _aligned_vectors(
+        self,
+        tenant_id: str,
+        chunks: Sequence[Dict[str, Any]],
+        *,
+        dims: int,
+    ) -> Optional[List[List[float]]]:
+        rows = self.db.fetchall(
+            "SELECT chunk_id, dims, embedding FROM kb_chunk_embeddings WHERE tenant_id=?",
+            (tenant_id,),
+        )
+        by_id = {row["chunk_id"]: row for row in rows}
+        vectors: List[List[float]] = []
+        width = dims * 4
+        for chunk in chunks:
+            row = by_id.get(chunk["id"])
+            if not row or int(row["dims"]) != dims:
+                return None
+            blob = row["embedding"]
+            if not isinstance(blob, (bytes, bytearray, memoryview)) or len(blob) != width:
+                return None
+            try:
+                vec = unpack_embedding(blob)
+            except (ValueError, struct.error):
+                return None
+            if len(vec) != dims:
+                return None
+            vectors.append(vec)
+        return vectors
+
+    def _upsert_embedding(self, chunk_id: str, tenant_id: str, content: str) -> None:
+        settings = get_settings()
+        dims = int(settings.kb_embed_dims)
+        vec = embedding_stub(content, dims=dims)
+        blob = pack_embedding(vec)
+        with self.db.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO kb_chunk_embeddings (chunk_id, tenant_id, dims, embedding, model)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(chunk_id) DO UPDATE SET
+                    tenant_id=excluded.tenant_id,
+                    dims=excluded.dims,
+                    embedding=excluded.embedding,
+                    model=excluded.model
+                """,
+                (chunk_id, tenant_id, dims, blob, settings.kb_embed_backend),
+            )
+
+
+def _hit(chunk: Dict[str, Any], score: float) -> Dict[str, Any]:
+    return {
+        "chunk_id": chunk["id"],
+        "document_id": chunk["document_id"],
+        "title": chunk["title"],
+        "source": chunk["source"],
+        "chunk_index": chunk["chunk_index"],
+        "score": round(score, 4),
+        "content": chunk["content"][:1000],
+    }
