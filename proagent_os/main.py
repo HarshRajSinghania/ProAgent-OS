@@ -12,6 +12,7 @@ from proagent_os import __version__
 from proagent_os.api import api_router
 from proagent_os.config import get_settings
 from proagent_os.db import get_db
+from proagent_os.ratelimit import enforce_rate_limit
 from proagent_os.services import get_services
 
 WEB_DIR = Path(__file__).parent / "web"
@@ -35,6 +36,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(api_router)
+    app.middleware("http")(enforce_rate_limit)
 
     static_dir = WEB_DIR / "static"
     static_dir.mkdir(parents=True, exist_ok=True)

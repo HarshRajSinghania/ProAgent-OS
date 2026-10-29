@@ -120,7 +120,7 @@ flowchart TB
 | **Professional** | Ingest URL/HTML and md/txt/html/pdf (PDF is best-effort). BM25, plus an optional offline hybrid stub. Brand context and skill packs. |
 | **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`). Recommendation inbox. Approve/reject API. APScheduler worker. Approve can run a noop or webhook executor and writes `recommendation_audit`. |
 | **Profitable** | `record_outcome`. Skill-weight nudges and tenant-memory feedback (a score nudge, not a trained policy). Dashboard API. |
-| **Commercial surface** | FastAPI `/api/v1`, one Bearer API key per tenant, web console, Docker Compose. |
+| **Commercial surface** | FastAPI `/api/v1`, one Bearer API key per tenant (rotate and revoke), in-process rate-limit stub, web console, Docker Compose. |
 
 ## Real LLM (OpenAI-compatible)
 
@@ -154,7 +154,10 @@ docker compose up --build
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `PROAGENT_ADMIN_KEY` | `dev-admin-key` | Bootstrap / list tenants |
+| `PROAGENT_ADMIN_KEY` | `dev-admin-key` | Bootstrap / list tenants. Also mints a replacement key after revoke |
+| `PROAGENT_RATE_LIMIT_ENABLED` | `true` | In-process fixed window on `/api/v1`. `false` turns it off |
+| `PROAGENT_RATE_LIMIT_REQUESTS` | `120` | Requests allowed per window, per bucket |
+| `PROAGENT_RATE_LIMIT_WINDOW_SECONDS` | `60` | Fixed window length in seconds |
 | `PROAGENT_DB_PATH` | `./data/proagent.db` | SQLite path |
 | `PROAGENT_LLM_PROVIDER` | `mock` | `mock` or `openai` (OpenAI-compatible) |
 | `PROAGENT_LLM_BASE_URL` | `https://api.openai.com/v1` | Compatible `/v1` base |
@@ -229,7 +232,10 @@ proagent-os/
 
 ## API overview
 
-- `POST /api/v1/tenants` (admin) · `GET /api/v1/tenants/me`
+- `POST /api/v1/tenants` (admin) · `GET /api/v1/tenants/me` · `GET /api/v1/tenants` (admin; includes `key_status`, not the secret)
+- `POST /api/v1/tenants/me/api-key/rotate` and `POST /api/v1/tenants/me/api-key/revoke` (tenant bearer). Admin equivalents: `POST /api/v1/tenants/{tenant_id}/api-key/rotate` and `.../revoke`.
+- Rotate is a hard cutover. The response includes the new `api_key` once, and the previous bearer returns 401 on the next call. There is no grace window. Revoke returns 401 `Invalid API key` for that bearer (same error as an unknown key). The tenant cannot undo a revoke; an admin rotate on that tenant id mints a replacement. `tenant_api_key_audit` and process logs store a short prefix and a SHA-256, not the raw key.
+- `/api/v1/*` is rate limited in-process (default 120 requests / 60 seconds). Buckets are per tenant id, plus separate admin and unrecognized-bearer buckets. Over the limit the body is `{"detail":"Rate limit exceeded"}` with `Retry-After`. Counters reset when the process restarts and are not shared across workers. Redis is not used. `/health` is not limited.
 - `GET /api/v1/agents` · `GET /api/v1/agents/tools`
 - `POST /api/v1/tasks` · `GET /api/v1/tasks/{id}`
 - `POST /api/v1/kb/ingest/url|text|file` · `POST /api/v1/kb/search`
@@ -264,7 +270,7 @@ Commercial-readiness work and the path toward a more discoverable project are tr
 Known gaps in this tree:
 
 - Production vector search (sqlite-vec / pgvector) and remote embedding providers. Offline hybrid retrieval with the pure-Python stub is available via `PROAGENT_KB_RETRIEVAL=hybrid`; the default remains BM25.
-- OAuth / SSO, RBAC, a general audit log, rate limits. Recommendation decisions already write `recommendation_audit`.
+- OAuth / SSO, RBAC, and a shared quota service. Recommendation decisions write `recommendation_audit`. API key issue, rotate, and revoke write `tenant_api_key_audit`. `/api/v1` has an in-process rate-limit stub (no Redis).
 - Multi-node deploy, migrations, backups (beyond single SQLite)
 - Recommendation executors beyond noop and one operator-configured webhook (no per-action code, no URL taken from the action payload)
 - A real evaluation harness (the learning loop is score nudges)
@@ -275,7 +281,8 @@ Known gaps in this tree:
 ## Security
 
 - Never commit `.env` or API keys
-- Rotate any key that was pasted into chat or logs
+- Rotate any key that was pasted into chat or logs. `POST /api/v1/tenants/me/api-key/rotate` invalidates the previous tenant key immediately. `POST /api/v1/tenants/me/api-key/revoke` disables it until an admin calls `POST /api/v1/tenants/{tenant_id}/api-key/rotate`. Logs and `tenant_api_key_audit` keep a prefix and SHA-256, not the raw key.
+- The rate limit is a per-process stub. It is not a billing quota and it does not survive a restart.
 - Approve and execute are privileged. A tenant API key that can approve can trigger the configured executor. Treat that key like a write credential.
 - `webhook` mode POSTs only to `PROAGENT_EXECUTOR_WEBHOOK_URL`. The recommendation `action` JSON is body data. It is not a URL, a shell command, or code. Redirects and environment proxies are disabled for that call.
 - Webhook receivers should treat `recommendation_id` as an idempotency key. A crash after a successful POST can retry the same recommendation.

@@ -28,8 +28,25 @@ CREATE TABLE IF NOT EXISTS tenants (
     goals TEXT DEFAULT '',
     constraints TEXT DEFAULT '',
     tone TEXT DEFAULT 'professional',
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    key_status TEXT NOT NULL DEFAULT 'active'
 );
+
+CREATE TABLE IF NOT EXISTS tenant_api_key_audit (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    key_prefix TEXT NOT NULL DEFAULT '',
+    key_sha256 TEXT NOT NULL DEFAULT '',
+    previous_prefix TEXT NOT NULL DEFAULT '',
+    previous_sha256 TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_api_key_audit
+    ON tenant_api_key_audit(tenant_id, created_at);
 
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
@@ -180,6 +197,16 @@ class Database:
     def _init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._ensure_tenant_key_status(conn)
+
+    @staticmethod
+    def _ensure_tenant_key_status(conn: sqlite3.Connection) -> None:
+        # CREATE TABLE IF NOT EXISTS does not add columns to an existing tenants table.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(tenants)")}
+        if "key_status" not in cols:
+            conn.execute(
+                "ALTER TABLE tenants ADD COLUMN key_status TEXT NOT NULL DEFAULT 'active'"
+            )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

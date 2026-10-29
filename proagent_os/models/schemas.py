@@ -26,6 +26,27 @@ class TenantOut(BaseModel):
     constraints: str = ""
     tone: str = "professional"
     created_at: str
+    key_status: str = "active"
+
+
+class ApiKeyRotateOut(BaseModel):
+    tenant_id: str
+    api_key: str
+    prefix: str
+    previous_prefix: Optional[str] = None
+    key_status: Literal["active"] = "active"
+    rotated_at: str
+    detail: str
+
+
+class ApiKeyRevokeOut(BaseModel):
+    tenant_id: str
+    revoked: bool = True
+    already_revoked: bool = False
+    prefix: str = ""
+    key_status: Literal["revoked"] = "revoked"
+    revoked_at: str
+    recovery: str
 
 
 class TaskCreate(BaseModel):
