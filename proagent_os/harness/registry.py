@@ -40,6 +40,13 @@ class AgentRegistry:
     def merge_file(self, path: Path) -> None:
         self.load(path)
 
+    def merge_tree(self, root: Path) -> None:
+        """Merge each `*/agents/agents.yaml` under `root` (the `verticals/` packs)."""
+        if not root.is_dir():
+            return
+        for path in sorted(p for p in root.glob("*/agents/agents.yaml") if p.is_file()):
+            self.merge_file(path)
+
     def register(self, spec: AgentSpec) -> None:
         self._agents[spec.id] = spec
 

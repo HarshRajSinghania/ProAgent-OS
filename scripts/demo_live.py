@@ -30,7 +30,13 @@ os.environ.setdefault("PROAGENT_LLM_PROVIDER", "mock")
 os.environ.setdefault("PROAGENT_AGENTS_CONFIG", str(ROOT / "config" / "agents.yaml"))
 os.environ.setdefault(
     "PROAGENT_SKILLS_DIRS",
-    f"{ROOT / 'skills'},{ROOT / 'verticals' / 'example' / 'skills'}",
+    ",".join(
+        [
+            str(ROOT / "skills"),
+            str(ROOT / "verticals" / "example" / "skills"),
+            str(ROOT / "verticals" / "support_desk" / "skills"),
+        ]
+    ),
 )
 
 

@@ -33,7 +33,7 @@ What the script sets for you (only if the variable is unset):
 | `PROAGENT_ADMIN_KEY` | `dev-admin-key` |
 | `PROAGENT_LLM_PROVIDER` | `mock` |
 | `PROAGENT_AGENTS_CONFIG` | `./config/agents.yaml` |
-| `PROAGENT_SKILLS_DIRS` | `./skills` and `./verticals/example/skills` |
+| `PROAGENT_SKILLS_DIRS` | `./skills`, `./verticals/example/skills`, and `./verticals/support_desk/skills` |
 
 If `PROAGENT_DB_PATH` is already exported, the script uses that file and deletes it first. Leave it unset to keep the demo database separate from `./data/proagent.db`.
 
@@ -54,8 +54,8 @@ Dashboard shape (counts, not ids):
 - `acceptance.counts`: `executed` `1` and `pending` `1`
 - `acceptance.acceptance_rate`: `1.0`, `decided`: `1`
 - `outcomes.by_metric`: `conversion_lift_pp`, `n` `1`, `avg_value` `0.4`
-- `skills`: `analyst`, `research`, `market_scan`
-- `agents`: `planner`, `researcher`, `analyst`, `aggregator`, `market_scout`
+- `skills`: `analyst`, `research`, `market_scan`, `policy_lookup`, `ticket_triage`
+- `agents`: `planner`, `researcher`, `analyst`, `aggregator`, `market_scout`, `support_triage`
 
 The pending recommendation is expected. During the task the analyst calls `emit_recommendation`, which stays `pending`. The acceptance rate ignores pending items and only counts decided ones, so the executed monitor recommendation reports `1.0`.
 

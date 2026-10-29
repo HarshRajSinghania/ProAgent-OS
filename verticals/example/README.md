@@ -7,3 +7,4 @@ Shows how to extend ProAgent OS without modifying core code:
 3. Point `PROAGENT_SKILLS_DIRS` at this folder (already included by default).
 
 This pack is intentionally generic (market scan stub) — replace with your industry pack.
+A fuller pack lives in `verticals/support_desk/` (support policies, triage, follow-up monitor).
