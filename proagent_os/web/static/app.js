@@ -101,16 +101,24 @@ async function loadRecs() {
     data.forEach((r) => {
       const el = document.createElement("div");
       el.className = "card";
+      const actions = [];
+      if (r.status === "pending") {
+        actions.push(`<button class="btn ok" onclick="decideRec('${r.id}','approved')">Approve</button>`);
+        actions.push(`<button class="btn danger" onclick="decideRec('${r.id}','rejected')">Reject</button>`);
+      } else if (r.status === "approved") {
+        actions.push(`<button class="btn secondary" onclick="decideRec('${r.id}','executed')">Mark executed</button>`);
+      }
+      const actionRow = actions.length ? `<div class="row">${actions.join("")}</div>` : "";
+      const hint = r.status === "approved"
+        ? `<div class="muted">Approved. Execution has not completed.</div>`
+        : "";
       el.innerHTML = `<div class="row" style="justify-content:space-between">
         <strong>${escapeHtml(r.title)}</strong>
         <span class="status ${r.status}">${r.status}</span>
       </div>
       <div class="muted" style="margin:.4rem 0">${escapeHtml(r.rationale || "")}</div>
-      <div class="row">
-        <button class="btn ok" onclick="decideRec('${r.id}','approved')">Approve</button>
-        <button class="btn danger" onclick="decideRec('${r.id}','rejected')">Reject</button>
-        <button class="btn secondary" onclick="decideRec('${r.id}','executed')">Mark executed</button>
-      </div>`;
+      ${hint}
+      ${actionRow}`;
       root.appendChild(el);
     });
   } catch (e) { $("recList").textContent = e.message; }
@@ -118,7 +126,10 @@ async function loadRecs() {
 
 async function decideRec(id, status) {
   try {
-    await api(`/recommendations/${id}/decide`, { method: "POST", body: JSON.stringify({ status }) });
+    const data = await api(`/recommendations/${id}/decide`, { method: "POST", body: JSON.stringify({ status }) });
+    if (data.execution && data.execution.ok === false) {
+      alert(data.execution.error || "Execution failed");
+    }
     loadRecs();
   } catch (e) { alert(e.message); }
 }

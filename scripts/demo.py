@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("PROAGENT_DB_PATH", str(ROOT / "data" / "demo.db"))
 os.environ.setdefault("PROAGENT_ADMIN_KEY", "dev-admin-key")
 os.environ.setdefault("PROAGENT_LLM_PROVIDER", "mock")
+os.environ.setdefault("PROAGENT_EXECUTOR_MODE", "noop")
+os.environ.setdefault("PROAGENT_EXECUTOR_ON_APPROVE", "true")
 os.environ.setdefault("PROAGENT_AGENTS_CONFIG", str(ROOT / "config" / "agents.yaml"))
 os.environ.setdefault(
     "PROAGENT_SKILLS_DIRS",
@@ -85,9 +87,13 @@ async def main() -> None:
     rec = run["recommendation"]
     print(f"[4] Monitor {mon['id']} emitted recommendation {rec['id']}: {rec['title']}")
 
-    # 5) Approve
+    # 5) Approve (default noop executor marks it executed; no network)
     approved = svc.recommendations.decide(tid, rec["id"], "approved")
-    print(f"[5] Recommendation status → {approved['status']}")
+    execution = approved.get("execution") or {}
+    print(
+        f"[5] Recommendation status → {approved['status']}"
+        f" (executor {execution.get('mode', 'off')}, ok={execution.get('ok')})"
+    )
 
     # 6) Record outcome + learning
     outcome = svc.metrics.record_outcome(tid, rec["id"], "conversion_lift_pp", 0.4, {"note": "after onboarding fix"})

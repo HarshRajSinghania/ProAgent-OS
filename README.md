@@ -18,7 +18,7 @@ Product name: **ProAgent OS** (`proagent-os`). Original design and code. It is a
 - Product teams packaging a vertical agent (support, sales, ops research) who want tenants, a private KB, and an approval inbox in one service.
 - Engineers who want an offline mock run first, then the same HTTP API against any OpenAI-compatible `/v1/chat/completions` endpoint.
 - Builders who will add a vertical pack (`verticals/<name>/` agents and skills) without editing the harness.
-- Early adopters who can live with one SQLite file, stub embeddings, and approve/reject that records the decision only.
+- Early adopters who can live with one SQLite file, stub embeddings, and an executor that is off, a local noop, or one configured webhook.
 
 ## Quick start (mock LLM)
 
@@ -35,7 +35,7 @@ pip install -e .
 python scripts/demo.py      # offline demo → data/demo.db (gitignored)
 ```
 
-You should see a completed task, an approved recommendation titled `Conversion below 2.5% target`, and a dashboard snapshot. Ids change every run. The demo tenant key is `pk_demo_acme_analytics`.
+You should see a completed task, a recommendation titled `Conversion below 2.5% target` that the default noop executor marks executed, and a dashboard snapshot. Ids change every run. The demo tenant key is `pk_demo_acme_analytics`.
 
 Serve that same database (the demo key lives in `data/demo.db`, not in a fresh file):
 
@@ -71,10 +71,10 @@ ProAgent OS is a runnable product harness: private KB, proactive human-in-the-lo
 | What you run | A harness: API, worker, console, SQLite | A library of chains, tools, retrievers, and graphs | A library of role-based agents, tasks, and crews |
 | Agent shape | Planner → specialists (native tool calls) → aggregator | The graph or chain you compose | The crew and tasks you define |
 | Knowledge | Per-tenant KB. BM25 by default; optional offline hybrid stub | Retrievers and stores you connect | Knowledge sources you attach |
-| Proactive HITL | Interval monitors file recommendations; the API records approve or reject | Human-input steps you add to your graph | Human-input steps you add to your crew or flow |
+| Proactive HITL | Interval monitors file recommendations; approve can run a noop or one configured webhook | Human-input steps you add to your graph | Human-input steps you add to your crew or flow |
 | Outcome loop | `record_outcome` stores a metric and nudges a skill weight | Evaluation in the tools you place around the library | Evaluation in the tools you place around the library |
 | Tenancy | FastAPI `/api/v1` and one Bearer API key per tenant | Your service owns auth and tenancy | Your service owns auth and tenancy |
-| This release | v0.1.0 early MVP. Approve stores a status and does not run the action | Large ecosystem; production shape is yours | Large ecosystem; production shape is yours |
+| This release | v0.1.0 early MVP. Approve can run a noop or a configured webhook. It does not run action code | Large ecosystem; production shape is yours | Large ecosystem; production shape is yours |
 
 ## Architecture
 
@@ -100,10 +100,11 @@ flowchart TB
     worker["APScheduler worker"] --> monitors["Monitors: kb_change, metric_stub, data_source"]
     monitors --> inbox["Recommendation inbox"]
     inbox --> human["Human approve or reject"]
+    human --> executor["Executor: off, noop, or webhook"]
   end
 
   kb --> monitors
-  human --> metrics["record_outcome"]
+  executor --> metrics["record_outcome"]
   metrics --> learning["Skill-weight nudge and tenant memory"]
 ```
 
@@ -117,7 +118,7 @@ flowchart TB
 |-------|-------------|
 | **Agent harness** | Planner → specialists → aggregator. YAML registry. Native OpenAI-style tool calls (multi-round). SQLite tasks and traces. |
 | **Professional** | Ingest URL/HTML and md/txt/html/pdf (PDF is best-effort). BM25, plus an optional offline hybrid stub. Brand context and skill packs. |
-| **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`). Recommendation inbox. Approve/reject API. APScheduler worker. Approve updates status only. |
+| **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`). Recommendation inbox. Approve/reject API. APScheduler worker. Approve can run a noop or webhook executor and writes `recommendation_audit`. |
 | **Profitable** | `record_outcome`. Skill-weight nudges and tenant-memory feedback (a score nudge, not a trained policy). Dashboard API. |
 | **Commercial surface** | FastAPI `/api/v1`, one Bearer API key per tenant, web console, Docker Compose. |
 
@@ -160,6 +161,11 @@ docker compose up --build
 | `PROAGENT_LLM_API_KEY` | empty | Bearer token; empty → mock fallback |
 | `PROAGENT_LLM_MODEL` | `gpt-4o-mini` | Model id |
 | `PROAGENT_MAX_TOOL_ROUNDS` | `8` | Max tool rounds per specialist |
+| `PROAGENT_EXECUTOR_MODE` | `noop` | `off`, `noop`, or `webhook` |
+| `PROAGENT_EXECUTOR_ON_APPROVE` | `true` | Run the executor as part of approve when mode is not `off` |
+| `PROAGENT_EXECUTOR_WEBHOOK_URL` | empty | Absolute http(s) URL. Required for `webhook`. This is the only request target |
+| `PROAGENT_EXECUTOR_WEBHOOK_TIMEOUT_S` | `5` | Webhook timeout in seconds |
+| `PROAGENT_EXECUTOR_WEBHOOK_TOKEN` | empty | Optional Bearer token for the webhook |
 | `PROAGENT_KB_RETRIEVAL` | `bm25` | `bm25`, `hybrid`, or `vector` |
 | `PROAGENT_KB_EMBED_BACKEND` | `stub` | Offline hash-bag embedder (only backend in this release) |
 | `PROAGENT_KB_EMBED_DIMS` | `64` | Stub embedding width |
@@ -227,7 +233,7 @@ See `verticals/example/` (`market_scout` + `market_scan`).
 - `POST /api/v1/kb/ingest/url|text|file` · `POST /api/v1/kb/search`
 - `GET /api/v1/skills` · `POST /api/v1/skills/{id}/invoke`
 - `POST /api/v1/monitors` · `POST /api/v1/monitors/{id}/run`
-- `GET /api/v1/recommendations` · `POST .../approve|reject|decide`
+- `GET /api/v1/recommendations` · `POST .../approve|reject|decide` — strict transitions (`pending` → `approved`/`rejected`, `approved` → `executed`). Approve may include `execution: {ok, mode, error?}`. A failed webhook stays `approved` (HTTP 200) and writes `execute_failed`. Illegal transitions are HTTP 400.
 - `POST /api/v1/metrics/outcomes` · `GET /api/v1/dashboard`
 
 ## Tests
@@ -256,9 +262,9 @@ Commercial-readiness work and the path toward a more discoverable project are tr
 Known gaps in this tree:
 
 - Production vector search (sqlite-vec / pgvector) and remote embedding providers. Offline hybrid retrieval with the pure-Python stub is available via `PROAGENT_KB_RETRIEVAL=hybrid`; the default remains BM25.
-- OAuth / SSO, RBAC, audit log, rate limits
+- OAuth / SSO, RBAC, a general audit log, rate limits. Recommendation decisions already write `recommendation_audit`.
 - Multi-node deploy, migrations, backups (beyond single SQLite)
-- Recommendation **executors** (today approve is status-only)
+- Recommendation executors beyond noop and one operator-configured webhook (no per-action code, no URL taken from the action payload)
 - A real evaluation harness (the learning loop is score nudges)
 - Billing, metering, OpenTelemetry
 - A richer product UI and i18n
@@ -268,7 +274,10 @@ Known gaps in this tree:
 
 - Never commit `.env` or API keys
 - Rotate any key that was pasted into chat or logs
-- Treat recommendation approve/execute as privileged actions in production
+- Approve and execute are privileged. A tenant API key that can approve can trigger the configured executor. Treat that key like a write credential.
+- `webhook` mode POSTs only to `PROAGENT_EXECUTOR_WEBHOOK_URL`. The recommendation `action` JSON is body data. It is not a URL, a shell command, or code. Redirects and environment proxies are disabled for that call.
+- Webhook receivers should treat `recommendation_id` as an idempotency key. A crash after a successful POST can retry the same recommendation.
+- Set `PROAGENT_EXECUTOR_MODE=off` when approve should record a decision and nothing else. Leave `PROAGENT_EXECUTOR_WEBHOOK_TOKEN` empty unless the receiver requires it. The token is not copied into the audit row or the API response.
 
 ## License
 

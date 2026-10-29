@@ -6,7 +6,6 @@ from typing import Any, Dict
 
 import httpx
 
-from proagent_os.db import dumps, get_db, new_id, utcnow
 from proagent_os.professional.kb.store import KnowledgeBase
 from proagent_os.professional.tools.base import Tool, ToolContext, ToolRegistry, ToolResult
 
@@ -114,26 +113,24 @@ class EmitRecommendationTool(Tool):
     }
 
     async def run(self, arguments: Dict[str, Any], ctx: ToolContext) -> ToolResult:
+        from proagent_os.proactive.recommendations import RecommendationService
+
         title = arguments.get("title") or "Untitled recommendation"
         rationale = arguments.get("rationale") or ""
-        action = arguments.get("action") or {}
-        rec_id = new_id("rec")
-        get_db().insert(
-            "recommendations",
-            {
-                "id": rec_id,
-                "tenant_id": ctx.tenant_id,
-                "monitor_id": ctx.monitor_id,
-                "task_id": ctx.task_id,
-                "title": title,
-                "rationale": rationale,
-                "action_payload_json": dumps(action),
-                "status": "pending",
-                "created_at": utcnow(),
-                "decided_at": None,
-            },
+        raw_action = arguments.get("action") or {}
+        action = raw_action if isinstance(raw_action, dict) else {}
+        rec = RecommendationService().create(
+            ctx.tenant_id,
+            title=title,
+            rationale=rationale,
+            action=action,
+            monitor_id=ctx.monitor_id,
+            task_id=ctx.task_id,
         )
-        return ToolResult(ok=True, output={"recommendation_id": rec_id, "status": "pending", "title": title})
+        return ToolResult(
+            ok=True,
+            output={"recommendation_id": rec["id"], "status": rec.get("status", "pending"), "title": title},
+        )
 
 
 def build_builtin_registry() -> ToolRegistry:

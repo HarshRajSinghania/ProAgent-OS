@@ -41,7 +41,8 @@ async def test_recommendation_approve_flow():
     assert any(r["id"] == rec_id for r in pending)
 
     approved = svc.recommendations.decide(tid, rec_id, "approved")
-    assert approved["status"] == "approved"
+    assert approved["status"] == "executed"
+    assert approved["execution"] == {"ok": True, "mode": "noop"}
 
     outcome = svc.metrics.record_outcome(tid, rec_id, "lift", 0.3)
     learning = svc.learning.apply_outcome_feedback(
@@ -52,4 +53,4 @@ async def test_recommendation_approve_flow():
     assert learning["skill_weight"]["score"] > 1.0
 
     rate = svc.recommendations.acceptance_rate(tid)
-    assert rate["counts"].get("approved", 0) >= 1
+    assert rate["counts"].get("executed", 0) >= 1

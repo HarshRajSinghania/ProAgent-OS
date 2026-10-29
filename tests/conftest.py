@@ -15,6 +15,12 @@ def _isolate_db(tmp_path, monkeypatch):
     monkeypatch.setenv("PROAGENT_DB_PATH", str(db_path))
     monkeypatch.setenv("PROAGENT_ADMIN_KEY", "test-admin-key")
     monkeypatch.setenv("PROAGENT_LLM_PROVIDER", "mock")
+    # Default executor is noop: CI stays offline and approval still records execution.
+    monkeypatch.setenv("PROAGENT_EXECUTOR_MODE", "noop")
+    monkeypatch.setenv("PROAGENT_EXECUTOR_ON_APPROVE", "true")
+    monkeypatch.setenv("PROAGENT_EXECUTOR_WEBHOOK_URL", "")
+    monkeypatch.setenv("PROAGENT_EXECUTOR_WEBHOOK_TOKEN", "")
+    monkeypatch.setenv("PROAGENT_EXECUTOR_WEBHOOK_TIMEOUT_S", "5")
     monkeypatch.setenv("PROAGENT_KB_RETRIEVAL", "bm25")
     monkeypatch.setenv("PROAGENT_KB_EMBED_BACKEND", "stub")
     monkeypatch.setenv("PROAGENT_KB_EMBED_DIMS", "64")
