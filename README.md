@@ -2,32 +2,27 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![CI](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml)
 [![GitHub issues](https://img.shields.io/github/issues/jahonn/ProAgent-OS)](https://github.com/jahonn/ProAgent-OS/issues)
+[![CI](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jahonn/ProAgent-OS/actions/workflows/ci.yml)
 
-**Vertical-agnostic Pro-Agent framework** for building commercial agent products:
+**Self-hosted harness for commercial agent products.** A planner–specialist loop, a private knowledge base, proactive human approval, and a small outcome loop, exposed as a multi-tenant FastAPI app.
 
-| Pillar | Meaning |
-|--------|---------|
-| **Professional** | Private knowledge base, brand context, skills, tools |
-| **Proactive** | Monitors that propose actions; humans approve |
-| **Profitable** | Outcomes recorded back into a simple learning loop |
+Product name: **ProAgent OS** (`proagent-os`). Original design and code. It is an independent project and is not affiliated with any third-party agent product.
 
-Product name: **ProAgent OS** (`proagent-os`). Original design and code — not affiliated with any third-party agent product.
+> Status: **MVP / early open source** (0.1.0). Suitable for demos, scaffolding vertical packs, and self-hosted experiments. Read the [roadmap (issue #2)](https://github.com/jahonn/ProAgent-OS/issues/2) before any production SaaS use. History: [CHANGELOG.md](CHANGELOG.md).
 
-> Status: **MVP / early open source**. Suitable for demos, scaffolding vertical packs, and self-hosted experiments. See [Roadmap gaps](#roadmap--honest-gaps) before production SaaS use.
+**Scan:** [Who it is for](#who-it-is-for) · [Quick start](#quick-start-mock-llm) · [Positioning](#positioning) · [Architecture](#architecture) · [Retrieval](#retrieval-modes) · [Roadmap](#roadmap)
 
-## Features
+## Who it is for
 
-| Layer | Capabilities |
-|-------|----------------|
-| **Agent Harness** | Planner → Specialists → Aggregator; YAML agent registry; **native OpenAI-style tool calls** (multi-round); SQLite task/trace memory |
-| **Professional** | KB ingest (URL/HTML, md/txt/html/pdf best-effort); BM25 retrieval with optional offline hybrid stub; brand/tenant context; skill packs; MCP-style tools |
-| **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`); recommendation inbox; approve/reject API; APScheduler worker |
-| **Profitable** | `record_outcome`; skill weight nudges + tenant memory feedback; dashboard API |
-| **Commercial surface** | FastAPI `/api/v1/*`, Bearer API keys per tenant, web console, Docker Compose |
+- Product teams packaging a vertical agent (support, sales, ops research) who want tenants, a private KB, and an approval inbox in one service.
+- Engineers who want an offline mock run first, then the same HTTP API against any OpenAI-compatible `/v1/chat/completions` endpoint.
+- Builders who will add a vertical pack (`verticals/<name>/` agents and skills) without editing the harness.
+- Early adopters who can live with one SQLite file, stub embeddings, and approve/reject that records the decision only.
 
-## Quick start (mock LLM — no API keys)
+## Quick start (mock LLM)
+
+Mock LLM, no API keys. The offline script is the one-minute path to a green run. Step-by-step output is in [docs/DEMO.md](docs/DEMO.md).
 
 ```bash
 git clone https://github.com/jahonn/ProAgent-OS.git
@@ -37,20 +32,26 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 pip install -e .
 
-python scripts/demo.py      # end-to-end offline demo → data/demo.db
+python scripts/demo.py      # offline demo → data/demo.db (gitignored)
+```
 
+You should see a completed task, an approved recommendation titled `Conversion below 2.5% target`, and a dashboard snapshot. Ids change every run. The demo tenant key is `pk_demo_acme_analytics`.
+
+Serve that same database (the demo key lives in `data/demo.db`, not in a fresh file):
+
+```bash
 export PROAGENT_ADMIN_KEY=dev-admin-key
 export PROAGENT_LLM_PROVIDER=mock
-export PROAGENT_DB_PATH=./data/proagent.db
+export PROAGENT_DB_PATH=./data/demo.db
 uvicorn proagent_os.main:app --host 0.0.0.0 --port 8080
 
-# optional proactive worker
+# optional proactive worker (separate process, same DB)
 python -m proagent_os.worker
 ```
 
-Open http://localhost:8080 — paste a tenant API key (from the demo or `POST /api/v1/tenants`). API docs: `/docs`.
+Open http://localhost:8080 and paste `pk_demo_acme_analytics`. API docs: http://localhost:8080/docs.
 
-### Create a tenant (admin)
+To start from an empty database instead, set `PROAGENT_DB_PATH=./data/proagent.db` and create a tenant:
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/tenants \
@@ -61,9 +62,68 @@ curl -s -X POST http://localhost:8080/api/v1/tenants \
 
 Use the returned `api_key` as `Authorization: Bearer …` for tenant APIs.
 
+## Positioning
+
+ProAgent OS is a runnable product harness: private KB, proactive human-in-the-loop, an outcome log, and FastAPI tenants. LangChain-style libraries and CrewAI-style crews are toolkits for assembling agent behavior; you bring the product shell. Pick the toolkit when you want that composability.
+
+| | ProAgent OS | LangChain-style libraries | CrewAI-style crews |
+|---|---|---|---|
+| What you run | A harness: API, worker, console, SQLite | A library of chains, tools, retrievers, and graphs | A library of role-based agents, tasks, and crews |
+| Agent shape | Planner → specialists (native tool calls) → aggregator | The graph or chain you compose | The crew and tasks you define |
+| Knowledge | Per-tenant KB. BM25 by default; optional offline hybrid stub | Retrievers and stores you connect | Knowledge sources you attach |
+| Proactive HITL | Interval monitors file recommendations; the API records approve or reject | Human-input steps you add to your graph | Human-input steps you add to your crew or flow |
+| Outcome loop | `record_outcome` stores a metric and nudges a skill weight | Evaluation in the tools you place around the library | Evaluation in the tools you place around the library |
+| Tenancy | FastAPI `/api/v1` and one Bearer API key per tenant | Your service owns auth and tenancy | Your service owns auth and tenancy |
+| This release | v0.1.0 early MVP. Approve stores a status and does not run the action | Large ecosystem; production shape is yours | Large ecosystem; production shape is yours |
+
+## Architecture
+
+Planner and aggregator stay text-only. Specialists call tools natively, for up to `PROAGENT_MAX_TOOL_ROUNDS` rounds (JSON-in-content is still accepted).
+
+```mermaid
+flowchart TB
+  client["Client: API key or web console"] --> api["FastAPI /api/v1"]
+
+  subgraph harness ["Agent harness"]
+    planner["Planner"] --> specialists["Specialists: researcher, analyst, vertical"]
+    specialists --> aggregator["Aggregator"]
+  end
+
+  api --> planner
+  brand["Tenant brand context"] --> planner
+  brand --> specialists
+  specialists --> tools["Tools: kb_search, http_fetch, file_read, clock, emit_recommendation"]
+  tools --> kb[("Private KB")]
+  aggregator --> traces[("SQLite tasks and traces")]
+
+  subgraph hitl ["Proactive loop"]
+    worker["APScheduler worker"] --> monitors["Monitors: kb_change, metric_stub, data_source"]
+    monitors --> inbox["Recommendation inbox"]
+    inbox --> human["Human approve or reject"]
+  end
+
+  kb --> monitors
+  human --> metrics["record_outcome"]
+  metrics --> learning["Skill-weight nudge and tenant memory"]
+```
+
+**Built-in tools:** `http_fetch` · `file_read` · `kb_search` · `clock` · `emit_recommendation`
+
+**Core agents:** `planner` · `researcher` · `analyst` · `aggregator` (plus agents merged from `verticals/*/agents/`)
+
+## Features
+
+| Layer | In this MVP |
+|-------|-------------|
+| **Agent harness** | Planner → specialists → aggregator. YAML registry. Native OpenAI-style tool calls (multi-round). SQLite tasks and traces. |
+| **Professional** | Ingest URL/HTML and md/txt/html/pdf (PDF is best-effort). BM25, plus an optional offline hybrid stub. Brand context and skill packs. |
+| **Proactive** | Interval monitors (`kb_change`, `metric_stub`, `data_source`). Recommendation inbox. Approve/reject API. APScheduler worker. Approve updates status only. |
+| **Profitable** | `record_outcome`. Skill-weight nudges and tenant-memory feedback (a score nudge, not a trained policy). Dashboard API. |
+| **Commercial surface** | FastAPI `/api/v1`, one Bearer API key per tenant, web console, Docker Compose. |
+
 ## Real LLM (OpenAI-compatible)
 
-Any OpenAI-compatible `/v1/chat/completions` endpoint works (OpenAI, Xiaomi Mimo Token Plan, DeepSeek, vLLM, etc.).
+Any OpenAI-compatible `/v1/chat/completions` endpoint works (OpenAI, Xiaomi Mimo Token Plan, DeepSeek, vLLM, and others).
 
 ```bash
 cp .env.example .env
@@ -78,8 +138,6 @@ export PROAGENT_MAX_TOOL_ROUNDS=8
 python scripts/demo_live.py   # prints multi-round tool traces
 ```
 
-Specialists use native `tools` / `tool_calls` (JSON-in-content fallback still supported). Planner and aggregator stay text-only.
-
 ## Docker Compose
 
 ```bash
@@ -87,8 +145,9 @@ export PROAGENT_ADMIN_KEY=dev-admin-key
 docker compose up --build
 ```
 
-- API/UI: http://localhost:8080  
+- API/UI: http://localhost:8080
 - Services: `api` + `worker` sharing a SQLite volume
+- This path starts a fresh database volume. Create a tenant with the curl above; it does not load `data/demo.db`.
 
 ## Environment variables
 
@@ -129,7 +188,7 @@ export PROAGENT_KB_EMBED_DIMS=64
 export PROAGENT_KB_HYBRID_ALPHA=0.5
 ```
 
-## Architecture
+## Repository map
 
 ```
 proagent-os/
@@ -150,10 +209,6 @@ proagent-os/
 ├── tests/
 └── docker-compose.yml
 ```
-
-**Built-in tools:** `http_fetch` · `file_read` · `kb_search` · `clock` · `emit_recommendation`  
-
-**Core agents:** `planner` · `researcher` · `analyst` · `aggregator` (+ vertical agents from `verticals/*/agents/`)
 
 ## Add a vertical pack
 
@@ -179,27 +234,35 @@ See `verticals/example/` (`market_scout` + `market_scan`).
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
 pytest -q
 ```
+
+CI runs `pytest -q` on Python 3.11 and 3.12 with `PROAGENT_LLM_PROVIDER=mock`.
 
 ## Contributing
 
 1. Fork and create a feature branch
-2. Keep changes focused; add/adjust tests when behavior changes
+2. Keep changes focused; add or adjust tests when behavior changes
 3. Do **not** commit `.env`, API keys, or tenant databases
 4. Open a PR against `main`
 
-Bug reports and feature ideas: use [GitHub Issues](https://github.com/jahonn/ProAgent-OS/issues) (templates provided).
+Details: [CONTRIBUTING.md](CONTRIBUTING.md). Bug reports and feature ideas: [GitHub Issues](https://github.com/jahonn/ProAgent-OS/issues) (templates provided).
 
-## Roadmap / honest gaps
+## Roadmap
+
+Commercial-readiness work and the path toward a more discoverable project are tracked in **[issue #2](https://github.com/jahonn/ProAgent-OS/issues/2)**.
+
+Known gaps in this tree:
 
 - Production vector search (sqlite-vec / pgvector) and remote embedding providers. Offline hybrid retrieval with the pure-Python stub is available via `PROAGENT_KB_RETRIEVAL=hybrid`; the default remains BM25.
 - OAuth / SSO, RBAC, audit log, rate limits
 - Multi-node deploy, migrations, backups (beyond single SQLite)
 - Recommendation **executors** (today approve is status-only)
-- Real evaluation harness (learning loop is score nudges)
+- A real evaluation harness (the learning loop is score nudges)
 - Billing, metering, OpenTelemetry
-- Richer product UI / i18n
+- A richer product UI and i18n
+- The v0.1.0 GitHub Release tag (this changelog describes the tree; the tag is still open on the roadmap)
 
 ## Security
 
