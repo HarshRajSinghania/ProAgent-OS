@@ -122,6 +122,7 @@
   <footer>
     ProAgent OS — vertical-agnostic agent framework. Keys stay in your browser localStorage.
     Bootstrap tenants with admin key via <code>POST /api/v1/tenants</code>.
+    Rotate or revoke that key with <code>POST /api/v1/tenants/me/api-key/rotate</code> and <code>.../revoke</code> (the old key stops immediately). After revoke, an admin rotate mints a replacement.
   </footer>
 
   <script src="/static/app.js"></script>

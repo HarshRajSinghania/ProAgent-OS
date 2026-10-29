@@ -25,6 +25,10 @@ def _isolate_db(tmp_path, monkeypatch):
     monkeypatch.setenv("PROAGENT_KB_EMBED_BACKEND", "stub")
     monkeypatch.setenv("PROAGENT_KB_EMBED_DIMS", "64")
     monkeypatch.setenv("PROAGENT_KB_HYBRID_ALPHA", "0.5")
+    # High ceiling so existing API tests do not trip the stub. Dedicated tests lower it.
+    monkeypatch.setenv("PROAGENT_RATE_LIMIT_ENABLED", "true")
+    monkeypatch.setenv("PROAGENT_RATE_LIMIT_REQUESTS", "10000")
+    monkeypatch.setenv("PROAGENT_RATE_LIMIT_WINDOW_SECONDS", "60")
     monkeypatch.setenv("PROAGENT_AGENTS_CONFIG", str(Path("config/agents.yaml").resolve()))
     monkeypatch.setenv(
         "PROAGENT_SKILLS_DIRS",
@@ -46,6 +50,9 @@ def _isolate_db(tmp_path, monkeypatch):
     reset_llm_cache()
     reset_db(db_path)
     reset_services()
+    from proagent_os.ratelimit import reset_rate_limiter
+
+    reset_rate_limiter()
     yield
     get_settings.cache_clear()
     reset_llm_cache()

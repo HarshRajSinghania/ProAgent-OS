@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     kb_embed_dims: int = Field(default=64, ge=1, le=4096)
     kb_hybrid_alpha: float = Field(default=0.5, ge=0.0, le=1.0)
 
+    # In-process fixed window per tenant (admin and anonymous are separate buckets).
+    # Not shared across processes and not a Redis quota. Restart clears the counters.
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = Field(default=120, ge=1)
+    rate_limit_window_seconds: int = Field(default=60, ge=1)
+
     @field_validator("kb_retrieval", "kb_embed_backend", "executor_mode", mode="before")
     @classmethod
     def _normalize_choice(cls, value: object) -> object:
