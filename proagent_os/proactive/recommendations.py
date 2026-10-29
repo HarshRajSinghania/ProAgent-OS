@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from proagent_os.db import dumps, get_db, loads, utcnow
+from proagent_os.config import get_settings
+from proagent_os.db import dumps, get_db, loads, new_id, utcnow
+from proagent_os.proactive.executors import ExecutionResult, build_executor
+
+logger = logging.getLogger("proagent.recommendations")
 
 
 ALLOWED_STATUS = {"pending", "approved", "rejected", "executed"}
@@ -43,22 +48,175 @@ class RecommendationService:
         row["action_payload"] = loads(row.pop("action_payload_json", "{}"), {})
         return row
 
-    def decide(self, tenant_id: str, rec_id: str, status: str) -> Dict[str, Any]:
+    def decide(
+        self,
+        tenant_id: str,
+        rec_id: str,
+        status: str,
+        *,
+        actor: str = "",
+    ) -> Dict[str, Any]:
+        """Apply a strict transition and, on approval, optionally run the executor.
+
+        pending → approved | rejected
+        approved → executed
+        rejected and executed are terminal.
+
+        Approval writes an audit row (`decided`). When ``PROAGENT_EXECUTOR_ON_APPROVE``
+        is set and the mode is not ``off``, a successful executor advances the row to
+        ``executed``. A failure leaves it ``approved`` and writes ``execute_failed``.
+        Reject never calls the executor. The returned dict may include
+        ``execution: {ok, mode, error?}`` when an executor ran.
+        """
         if status not in {"approved", "rejected", "executed"}:
             raise ValueError("status must be approved|rejected|executed")
         row = self.get(tenant_id, rec_id)
         if not row:
             raise KeyError("recommendation not found")
-        if row["status"] not in {"pending", "approved"} and status == "executed":
-            # allow execute only from approved/pending
-            pass
+        current = row["status"]
+        self._require_transition(current, status)
+
+        if status == "rejected":
+            self._set_status(tenant_id, rec_id, "rejected", decided_at=utcnow())
+            self._audit(
+                tenant_id=tenant_id,
+                recommendation_id=rec_id,
+                event="decided",
+                from_status=current,
+                to_status="rejected",
+                actor=actor,
+                detail={"status": "rejected"},
+            )
+            return self.get(tenant_id, rec_id) or {}
+
+        if status == "approved":
+            self._set_status(tenant_id, rec_id, "approved", decided_at=utcnow())
+            self._audit(
+                tenant_id=tenant_id,
+                recommendation_id=rec_id,
+                event="decided",
+                from_status=current,
+                to_status="approved",
+                actor=actor,
+                detail={"status": "approved"},
+            )
+            updated = self.get(tenant_id, rec_id) or {}
+            settings = get_settings()
+            if settings.executor_on_approve and settings.executor_mode != "off":
+                execution = self._invoke_executor(updated, actor)
+                updated = self.get(tenant_id, rec_id) or updated
+                updated["execution"] = execution
+            return updated
+
+        settings = get_settings()
+        if settings.executor_mode == "off":
+            self._set_status(tenant_id, rec_id, "executed")
+            self._audit(
+                tenant_id=tenant_id,
+                recommendation_id=rec_id,
+                event="executed",
+                from_status=current,
+                to_status="executed",
+                actor=actor,
+                detail={"mode": "off"},
+            )
+            updated = self.get(tenant_id, rec_id) or {}
+            updated["execution"] = {"ok": True, "mode": "off"}
+            return updated
+
+        execution = self._invoke_executor(row, actor)
+        updated = self.get(tenant_id, rec_id) or {}
+        updated["execution"] = execution
+        return updated
+
+    def _require_transition(self, current: str, status: str) -> None:
+        allowed = {
+            ("pending", "approved"),
+            ("pending", "rejected"),
+            ("approved", "executed"),
+        }
+        if (current, status) not in allowed:
+            raise ValueError(f"invalid transition: {current} -> {status}")
+
+    def _set_status(
+        self,
+        tenant_id: str,
+        rec_id: str,
+        status: str,
+        *,
+        decided_at: Optional[str] = None,
+    ) -> None:
+        data: Dict[str, Any] = {"status": status}
+        if decided_at is not None:
+            data["decided_at"] = decided_at
         self.db.update(
             "recommendations",
-            {"status": status, "decided_at": utcnow()},
+            data,
             "id=? AND tenant_id=?",
             (rec_id, tenant_id),
         )
-        return self.get(tenant_id, rec_id) or {}
+
+    def _invoke_executor(self, row: Dict[str, Any], actor: str) -> Dict[str, Any]:
+        settings = get_settings()
+        mode = settings.executor_mode
+        try:
+            result = build_executor(settings).execute(row)
+        except Exception as exc:  # noqa: BLE001 — config and delivery failures stay on the row
+            logger.warning(
+                "executor failed for recommendation %s (%s)",
+                row.get("id"),
+                type(exc).__name__,
+            )
+            message = str(exc).strip() or type(exc).__name__
+            result = ExecutionResult(ok=False, mode=mode, error=message[:240])
+        if result.ok:
+            self._set_status(row["tenant_id"], row["id"], "executed")
+            self._audit(
+                tenant_id=row["tenant_id"],
+                recommendation_id=row["id"],
+                event="executed",
+                from_status="approved",
+                to_status="executed",
+                actor=actor,
+                detail=result.as_api(),
+            )
+        else:
+            self._audit(
+                tenant_id=row["tenant_id"],
+                recommendation_id=row["id"],
+                event="execute_failed",
+                from_status="approved",
+                to_status="approved",
+                actor=actor,
+                detail=result.as_api(),
+            )
+        return result.as_api()
+
+    def _audit(
+        self,
+        *,
+        tenant_id: str,
+        recommendation_id: str,
+        event: str,
+        from_status: Optional[str],
+        to_status: Optional[str],
+        actor: str,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.db.insert(
+            "recommendation_audit",
+            {
+                "id": new_id("aud"),
+                "tenant_id": tenant_id,
+                "recommendation_id": recommendation_id,
+                "event": event,
+                "from_status": from_status,
+                "to_status": to_status,
+                "actor": actor,
+                "detail_json": dumps(detail or {}),
+                "created_at": utcnow(),
+            },
+        )
 
     def create(
         self,
@@ -69,8 +227,6 @@ class RecommendationService:
         monitor_id: Optional[str] = None,
         task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        from proagent_os.db import new_id
-
         rec_id = new_id("rec")
         self.db.insert(
             "recommendations",

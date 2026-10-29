@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -56,7 +56,7 @@ class MonitorCreate(BaseModel):
 
 
 class RecommendationDecide(BaseModel):
-    status: str  # approved | rejected | executed
+    status: Literal["approved", "rejected", "executed"]
 
 
 class OutcomeCreate(BaseModel):

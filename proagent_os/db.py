@@ -122,6 +122,23 @@ CREATE TABLE IF NOT EXISTS recommendations (
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
 );
 
+CREATE TABLE IF NOT EXISTS recommendation_audit (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    recommendation_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    from_status TEXT,
+    to_status TEXT,
+    actor TEXT DEFAULT '',
+    detail_json TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (recommendation_id) REFERENCES recommendations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_recommendation_audit_rec
+    ON recommendation_audit(tenant_id, recommendation_id, created_at);
+
 CREATE TABLE IF NOT EXISTS outcomes (
     id TEXT PRIMARY KEY,
     tenant_id TEXT NOT NULL,

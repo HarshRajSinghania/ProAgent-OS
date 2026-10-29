@@ -21,7 +21,9 @@ def decide(rec_id: str, body: RecommendationDecide, tenant: TenantDep) -> dict:
     if tenant.get("is_admin"):
         raise HTTPException(400, "Use a tenant API key")
     try:
-        return get_services().recommendations.decide(tenant["id"], rec_id, body.status)
+        return get_services().recommendations.decide(
+            tenant["id"], rec_id, body.status, actor=tenant["id"]
+        )
     except KeyError:
         raise HTTPException(404, "recommendation not found") from None
     except ValueError as exc:
